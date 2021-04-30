@@ -1,0 +1,2 @@
+physical_evade,1
+magic_evade,1

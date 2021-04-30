@@ -1,0 +1,2 @@
+inflict_type,bit:empty1 empty2 empty3 empty4 cancel separate random all_or_nothing
+statuses_to_inflict,5

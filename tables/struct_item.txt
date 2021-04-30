@@ -1,0 +1,11 @@
+palette,1
+graphic,1
+enemy_level,1
+misc1,bit:z0 rare unk1 accessory body head shield weapon
+second_table,1
+itemtype,1
+always_zero1,1
+attributes,1
+price,2
+time_available,1
+always_zero2,1

@@ -1,0 +1,2 @@
+hp_bonus,1
+mp_bonus,1

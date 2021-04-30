@@ -1,0 +1,27 @@
+AbilityObject               struct_ability.txt              4f3f0@SCUS_942.21           512
+AbilityAttributesObject     struct_ability_attribute.txt    503f0@SCUS_942.21           357
+AbilityStatusObject         empty.txt                       0                           357
+JobObject                   struct_job.txt                  518b8@SCUS_942.21           160
+ItemObject                  struct_item.txt                 536b8@SCUS_942.21           254
+WeaponObject                struct_weapon.txt               542b8@SCUS_942.21           128
+WeaponStatusObject          empty.txt                       0                           128
+ShieldObject                struct_shield.txt               546b8@SCUS_942.21           16
+ArmorObject                 struct_armor.txt                546d8@SCUS_942.21           64
+AccessoryObject             struct_accessory.txt            54758@SCUS_942.21           32
+ChemistItemObject           struct_chemist_item.txt         54798@SCUS_942.21           14
+InflictStatusObject         struct_inflict_status.txt       547c4@SCUS_942.21           128
+ItemAttributesObject        struct_item_attribute.txt       54ac4@SCUS_942.21           80
+SkillsetObject              struct_skillset.txt             55294@SCUS_942.21           176
+MonsterSkillsObject         struct_monster_skills.txt       563c4@SCUS_942.21           48
+PoachObject                 struct_poach.txt                56864@SCUS_942.21           48
+JobReqObject                struct_job_reqs.txt             568c4@SCUS_942.21           19
+JobJPReqObject              struct_job_jp_req.txt           56984@SCUS_942.21           8
+MoveFindObject              struct_move_find.txt            8ee74@BATTLE.BIN            512
+FormationObject             struct_formation.txt            0bbd4@EVENT/ATTACK.OUT      768
+EncounterObject             struct_encounter.txt            10938@EVENT/ATTACK.OUT      512
+UnitObject                  struct_unit.txt                 pointers_units.txt
+PropositionObject           struct_proposition.txt          36380@WORLD/WLDCORE.BIN     96
+#PropositionJPObject         struct_proposition_jp.txt       36db4@WORLD/WLDCORE.BIN     8
+#PropositionGilObject        struct_proposition_gil.txt      36dc4@WORLD/WLDCORE.BIN     8
+FormationPaletteObject      struct_palette.txt              0f000@EVENT/UNIT.BIN        128
+SpritePaletteObject         struct_palette.txt              pointers_sprite_palettes.txt

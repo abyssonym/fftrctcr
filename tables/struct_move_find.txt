@@ -1,0 +1,4 @@
+coordinates,1
+misc1,bit:degenerator deathtrap sleeping_gas steel_needle disable_trap always_trap unk no_activation
+rare,1
+common,1
