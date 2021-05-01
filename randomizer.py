@@ -424,9 +424,187 @@ class PoachObject(TableObject):
 
 class JobReqObject(TableObject): pass
 class JobJPReqObject(TableObject): pass
-class MoveFindObject(TableObject): pass
+
+
+class MoveFindObject(TableObject):
+    flag = 't'
+    done_locations = {}
+
+    @property
+    def map_index(self):
+        return self.index // 4
+
+    @cached_property
+    def mesh(self):
+        for m in MeshObject.every:
+            if m.map_index == self.map_index:
+                return m
+
+    @property
+    def x(self):
+        return self.coordinates >> 4
+
+    @property
+    def y(self):
+        return self.coordinates & 0xF
+
+    @property
+    def is_active(self):
+        return self.old_data['misc1'] != 0
+
+    @property
+    def old_item_null(self):
+        return self.get_bit('always_trap', old=True) or (
+            self.old_data['common'] == self.old_data['rare'] == 0)
+
+    def set_coordinates(self, x, y):
+        self.coordinates = (x << 4) | y
+
+    def mutate(self):
+        if self.mesh is None:
+            return
+
+        if self.map_index not in MoveFindObject.done_locations:
+            MoveFindObject.done_locations[self.map_index] = set()
+
+        if random.random() < self.random_degree ** 0.5:
+            valid_locations = self.mesh.get_tiles_compare_attribute(
+                'bad', False)
+            valid_locations = [l for l in valid_locations if l not in
+                               MoveFindObject.done_locations[self.map_index]]
+            new_location = random.choice(valid_locations)
+            self.set_coordinates(*new_location)
+
+        template = random.choice([mfo for mfo in MoveFindObject.every
+                                  if mfo.is_active])
+        self.misc1 = template.misc1
+        if (not template.old_item_null and (
+                self.old_item_null
+                or random.random() < self.random_degree)):
+            common, rare = (template.old_data['common'],
+                            template.old_data['rare'])
+        else:
+            common, rare = self.common, self.rare
+        self.common = ItemObject.get(common).get_similar(
+            random_degree=self.random_degree).index
+        self.rare = ItemObject.get(rare).get_similar(
+            random_degree=self.random_degree).index
+
+
 class FormationObject(TableObject): pass
 class EncounterObject(TableObject): pass
+
+
+class MeshObject(TableObject):
+    class Tile:
+        def __init__(self, bytestring, x, y):
+            bytestring = [c for c in bytestring]
+            self.terrain_type = bytestring[0] & 0x3F
+            self.height = bytestring[2]
+            self.depth = bytestring[3] >> 5
+            self.slope_height = bytestring[3] & 0x1F
+            self.slope_type = bytestring[4]
+            self.impassable = (bytestring[6] >> 1) & 1
+            self.uncursorable = bytestring[6] & 1
+            self.occupied = 0
+            self.party = 0
+            self.upper = 0
+            self.unreachable = 0
+            self.x, self.y = x, y
+
+        @property
+        def bad(self):
+            if self.occupied or self.unreachable:
+                return 1
+            if self.terrain_type in [0x12, 0x24]:
+                # bad terrain : lava, water plant
+                return 1
+            return self.bad_regardless
+
+        @property
+        def bad_regardless(self):
+            if self.impassable | self.uncursorable:
+                return 1
+            if self.slope_height > 2:
+                return 1
+            if self.depth > 2:
+                return 1
+            return 0
+
+        def set_unreachable(self, unreachable=1):
+            self.unreachable = unreachable
+
+        def set_occupied(self, occupied=1):
+            self.occupied = occupied
+
+        def set_party(self, party=1):
+            assert not self.occupied
+            self.party = party
+            self.set_occupied()
+
+    def read_data(self, filename=None, pointer=None):
+        f = get_open_file(self.filename)
+        self.data = f.read()
+
+    @property
+    def map_index(self):
+        filename = path.split(self.filename)[-1]
+        base, extension = filename.split('.')
+        return int(base[-3:])
+
+    @property
+    def terrain_addr(self):
+        addr = int.from_bytes(self.data[0x68:0x68+4], byteorder='little')
+        # TODO: addr >= 0xb4???
+        return addr
+
+    @property
+    def width(self):
+        return self.data[self.terrain_addr]
+
+    @property
+    def length(self):
+        return self.data[self.terrain_addr+1]
+
+    @cached_property
+    def tiles(self):
+        pointer = self.terrain_addr + 2
+        block = self.data[pointer:pointer+2048]
+        return [self.Tile(block[i*8:(i+1)*8], i % self.width, i // self.width)
+                for i in range(self.width * self.length)]
+
+    @cached_property
+    def upper(self):
+        pointer = self.terrain_addr + 2 + 2048
+        block = self.data[pointer:pointer+2048]
+        return [self.Tile(block[i*8:(i+1)*8], i % self.width, i // self.width)
+                for i in range(self.width * self.length)]
+
+    @classmethod
+    def get_by_map_index(self, map_index):
+        return [m for m in MeshObject.every if m.map_index == map_index]
+
+    def get_tile(self, x, y):
+        index = (y * self.width) + x
+        tile = self.tiles[index]
+        assert (tile.x, tile.y) == (x, y)
+        return tile
+
+    def get_tiles_compare_attribute(self, attribute, value,
+                                    compare_function=None):
+        if compare_function is None:
+            compare_function = lambda a, b: a == b
+        meshes = MeshObject.get_by_map_index(self.map_index)
+        meshes = [m for m in meshes if m.width * m.length > 0]
+        width = min(m.width for m in meshes)
+        length = min(m.length for m in meshes)
+        coordinates = set()
+        for y in range(length):
+            for x in range(width):
+                values = {getattr(m.get_tile(x, y), attribute) for m in meshes}
+                if all(compare_function(v, value) for v in values):
+                    coordinates.add((x, y))
+        return sorted(coordinates)
 
 
 class UnitObject(TableObject):
