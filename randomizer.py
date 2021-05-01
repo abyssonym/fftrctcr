@@ -1,18 +1,22 @@
 from randomtools.tablereader import (
     TableObject, addresses, get_activated_patches, get_open_file,
     mutate_normal, get_seed, get_global_label, tblpath,
-    get_random_degree, get_difficulty, write_patch)
+    get_random_degree, get_difficulty, write_patch,
+    SANDBOX_PATH)
 from randomtools.utils import (
     classproperty, cached_property, utilrandom as random)
 from randomtools.interface import (
     run_interface, clean_and_write, finish_interface,
     get_activated_codes, get_flags, get_outfile,
     write_cue_file)
+
 from collections import Counter, defaultdict
 from math import ceil
-from os import path
+from os import path, walk
 from sys import argv
 from traceback import format_exc
+
+import re
 
 
 VERSION = '1'
@@ -430,6 +434,10 @@ class MoveFindObject(TableObject):
     flag = 't'
     done_locations = {}
 
+    @classproperty
+    def after_order(self):
+        return [MeshObject]
+
     @property
     def map_index(self):
         return self.index // 4
@@ -495,7 +503,89 @@ class FormationObject(TableObject): pass
 class EncounterObject(TableObject): pass
 
 
-class MeshObject(TableObject):
+class MapMixin(TableObject):
+    @property
+    def map_index(self):
+        filename = path.split(self.filename)[-1]
+        base, extension = filename.split('.')
+        return int(base[-3:])
+
+    def read_data(self, filename=None, pointer=None):
+        f = get_open_file(self.filename)
+        self.data = f.read()
+
+    def load_data(self, filename):
+        f = get_open_file(filename)
+        data = f.read()
+        if data == self.data:
+            print('WARNING: {0} contains unmodified data.'.format(filename))
+        else:
+            self.data = data
+            if hasattr(self, '_property_cache'):
+                del(self._property_cache)
+            self._loaded_from = filename
+
+    def write_data(self, filename=None, pointer=None):
+        f = get_open_file(self.filename)
+        f.write(self.data)
+
+
+class GNSObject(MapMixin):
+    flag = 'q'
+    flag_description = 'custom maps'
+
+    CUSTOM_MAP_PATH = path.join('custom', 'maps')
+    CUSTOM_INDEX_OPTIONS = {}
+
+    filename_matcher = re.compile('^MAP(\d\d\d)\.(GNS|(\d+))')
+    for parent, children, filenames in sorted(walk(CUSTOM_MAP_PATH)):
+        indexes = set()
+        filepaths = set()
+        for f in filenames:
+            match = filename_matcher.match(f)
+            if match:
+                indexes.add(match.group(1))
+                filepaths.add(path.join(parent, f))
+        if len(indexes) == 1:
+            index = int(list(indexes)[0])
+            if index not in CUSTOM_INDEX_OPTIONS:
+                CUSTOM_INDEX_OPTIONS[index] = [None]
+            CUSTOM_INDEX_OPTIONS[index].append(sorted(filepaths))
+
+    def randomize(self):
+        if self.map_index not in self.CUSTOM_INDEX_OPTIONS:
+            return
+
+        options = self.CUSTOM_INDEX_OPTIONS[self.map_index]
+        if 'novanilla' in get_activated_codes():
+            options = [o for o in options if o is not None]
+
+        chosen = random.choice(options)
+        if chosen is None:
+            return
+
+        filenames = [path.split(fp)[1] for fp in chosen]
+        file_map = dict(zip(filenames, chosen))
+        done_filenames = set()
+        for o in GNSObject.every + MeshObject.every + TextureObject.every:
+            assert o.filename[:len(SANDBOX_PATH)] == SANDBOX_PATH
+            _, filename = path.split(o.filename)
+            if filename in file_map:
+                load_filename = file_map[filename]
+                o.load_data(load_filename)
+                done_filenames.add(load_filename)
+
+        unused = set(chosen) - done_filenames
+        if unused:
+            raise Exception(
+                'Unused files: {0}'.format(' '.join(sorted(unused))))
+
+
+class MeshObject(MapMixin):
+    @classproperty
+    def after_order(self):
+        return [GNSObject]
+
     class Tile:
         def __init__(self, bytestring, x, y):
             bytestring = [c for c in bytestring]
@@ -541,16 +631,6 @@ class MeshObject(TableObject):
             assert not self.occupied
             self.party = party
             self.set_occupied()
-
-    def read_data(self, filename=None, pointer=None):
-        f = get_open_file(self.filename)
-        self.data = f.read()
-
-    @property
-    def map_index(self):
-        filename = path.split(self.filename)[-1]
-        base, extension = filename.split('.')
-        return int(base[-3:])
 
     @property
     def terrain_addr(self):
@@ -607,6 +687,9 @@ class MeshObject(TableObject):
         return sorted(coordinates)
 
 
+class TextureObject(MapMixin): pass
+
+
 class UnitObject(TableObject):
     DAYS_IN_MONTH = {1: 31, 2: 28, 3: 31, 4: 30, 5: 31, 6: 30,
                      7: 31, 8: 31, 9: 30, 10: 31, 11: 30, 12: 31}
@@ -639,6 +722,7 @@ if __name__ == '__main__':
                        if isinstance(g, type) and issubclass(g, TableObject)
                        and g not in [TableObject]]
         codes = {
+            'novanilla': ['novanilla'],
             }
         run_interface(ALL_OBJECTS, snes=False, codes=codes,
                       custom_degree=True, custom_difficulty=True)
