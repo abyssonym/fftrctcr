@@ -29,3 +29,4 @@ PropositionObject           struct_proposition.txt          36380@WORLD/WLDCORE.
 FormationPaletteObject      struct_palette.txt              0f000@EVENT/UNIT.BIN        128
 SpritePaletteObject         struct_palette.txt              pointers_sprite_palettes.txt
 .option                 patch_automash.txt
+$characters             names_characters.txt

@@ -1,6 +1,6 @@
 graphic,1
 misc1,bit:save_formation test_teta hidden_stats load_formation join_after_event monster female male
-name,1
+name_index,1
 level,1
 month,1
 day,1

@@ -1,5 +1,5 @@
 from randomtools.tablereader import (
-    TableObject, addresses, get_activated_patches, get_open_file,
+    TableObject, addresses, names, get_activated_patches, get_open_file,
     mutate_normal, get_seed, get_global_label, tblpath,
     get_random_degree, get_difficulty, write_patch,
     SANDBOX_PATH)
@@ -143,8 +143,10 @@ class JobObject(TableObject):
 
     LUCAVI_ORDER = [0x43, 0x3c, 0x3e, 0x45, 0x40, 0x41, 0x97, 0x49]
     MONSTER_JOBS = lange(0x5e, 0x8e) + [0x90, 0x91, 0x96, 0x97, 0x99, 0x9a]
-    STORYLINE_RECRUITABLE_JOBS = [0xd, 0xf, 0x16, 0x1a, 0x1e, 0x1f,
-                                  0x29, 0x2a, 0x32, 0x90, 0x91]
+    STORYLINE_RECRUITABLE_NAMES = {
+        'Ramza', 'Mustadio', 'Agrias', 'Meliadoul', 'Rafa', 'Malak', 'Orlandu',
+        'Beowulf', 'Cloud', 'Reis',
+        }
 
     randomselect_attributes = [
         ('hpgrowth', 'hpmult'),
@@ -162,9 +164,35 @@ class JobObject(TableObject):
         ('absorb_elem', 'nullify_elem', 'resist_elem', 'weak_elem'): (0xff,)*4,
         }
 
+    @classproperty
+    def character_jobs(self):
+        if hasattr(JobObject, '_character_jobs'):
+            return JobObject._character_jobs
+
+        character_jobs = defaultdict(set)
+        for u in UnitObject.every:
+            if 'NO-NAME' not in u.character_name:
+                character_jobs[u.character_name].add(u.old_data['job'])
+
+        JobObject._character_jobs = {}
+        for name in character_jobs:
+            JobObject._character_jobs[name] = [
+                JobObject.get(j) for j in sorted(character_jobs[name])
+                if JobObject.get(j).is_special]
+
+        return JobObject.character_jobs
+
     @property
     def is_generic(self):
         return 0x4a <= self.index <= 0x5d
+
+    @property
+    def is_monster(self):
+        return self.index >= 0x5e and self.index != 0x97
+
+    @property
+    def is_special(self):
+        return 1 <= self.index <= 0x49 or self.index == 0x97
 
     @property
     def name(self):
@@ -403,14 +431,223 @@ class ItemAttributesObject(MutateBoostMixin):
 
 class SkillsetObject(TableObject):
     BANNED_SKILLS = lange(0x165, 0x16f)
-    BANNED_SKILLSET_SHUFFLE = [0, 1, 2, 3, 6, 8, 0x11, 0x12, 0x13, 0x14, 0x15,
-                               0x18, 0x34, 0x38, 0x39, 0x3b, 0x3e, 0x9c, 0xa1]
-    MATH_SKILLETS = [0xa, 0xb, 0xc, 0x10]
-    BANNED_ANYTHING = [0x18]
+    MATH_SKILLETS = {0xa, 0xb, 0xc, 0x10}
+    BANNED_ANYTHING = {0x18}  # mimic
+    BANNED_SKILLSET_SHUFFLE = {0, 1, 2, 3, 6, 8, 0x11, 0x12, 0x13, 0x14, 0x15,
+                               0x18, 0x34, 0x38, 0x39, 0x3b, 0x3e, 0x9c, 0xa1
+                               } | BANNED_ANYTHING
+
+    @classproperty
+    def character_skillsets(self):
+        skillsets = {}
+        for name in JobObject.character_jobs:
+            jobs = JobObject.character_jobs[name]
+            skillsets[name] = []
+            for j in jobs:
+                try:
+                    ss = SkillsetObject.get(j.skillset)
+                    skillsets[name].append(ss)
+                except KeyError:
+                    pass
+        return skillsets
 
     @property
     def is_generic(self):
         return 5 <= self.index <= 0x18
+
+    def get_actions(self, old=False):
+        if old:
+            actionbits = ((self.old_data['actionbits1'] << 8)
+                           | self.old_data['actionbits2'])
+            actionbytes = self.old_data['actionbytes']
+        else:
+            actionbits = (self.actionbits1 << 8) | self.actionbits2
+            actionbytes = self.actionbytes
+        actions = []
+        for i, a in enumerate(actionbytes):
+            if actionbits & (1 << (0xf-i)):
+                a |= 0x100
+            actions.append(a)
+        return actions
+
+    @property
+    def actions(self):
+        return self.get_actions()
+
+    @property
+    def old_actions(self):
+        return self.get_actions(old=True)
+
+    def set_actions(self, actions, order_new=False):
+        assert 0 not in actions
+        actions = sorted(actions)
+        old_actions = [a for a in actions if a in self.old_actions]
+        new_actions = [a for a in actions if a not in old_actions]
+        if order_new:
+            actions = new_actions + old_actions
+        else:
+            actions = old_actions + new_actions
+        actionbits = 0
+        actionbytes = []
+        for i, a in enumerate(actions):
+            if a & 0x100:
+                actionbits |= (1 << (0xf-i))
+            actionbytes.append(a & 0xff)
+        self.actionbytes = actionbytes
+        self.actionbits1 = actionbits >> 8
+        self.actionbits2 = actionbits & 0xff
+
+    @property
+    def rsms(self):
+        rsms = []
+        for i, rsm in enumerate(self.rsmbytes):
+            if self.rsmbits & (1 << (0x7-i)):
+                rsm |= 0x100
+            rsms.append(rsm)
+        return rsms
+
+    def set_rsms(self, rsms):
+        assert 0 not in rsms
+        rsms = sorted(rsms)
+        rsmbits = 0
+        rsmbytes = []
+        for i, rsm in enumerate(rsms):
+            if rsm & 0x100:
+                rsmbits |= (1 << (0x7-i))
+            rsmbytes.append(rsm & 0xff)
+        self.rsmbytes = rsmbytes
+        self.rsmbits = rsmbits
+
+    @classmethod
+    def intershuffle(self):
+        rsms = set()
+        rsm_count = 0
+        job_actions = {}
+        for name in JobObject.STORYLINE_RECRUITABLE_NAMES:
+            skillsets = SkillsetObject.character_skillsets[name]
+            actions = set()
+            rsm_counts = []
+            for ss in skillsets:
+                rsms |= set(ss.rsms)
+                rsm_counts.append(len([rsm for rsm in ss.rsms if rsm]))
+                actions |= set(ss.actions)
+            rsm_count += max(rsm_counts)
+            actions -= {0}
+            job_actions[name] = actions
+
+        for ss in SkillsetObject.every:
+            if ss.is_generic:
+                rsms |= set(ss.rsms)
+                rsm_count += len([rsm for rsm in ss.rsms if rsm])
+
+        shuffled_names = sorted(job_actions)
+        random.shuffle(shuffled_names)
+        no_inherit_from = set()
+        for i, name1 in enumerate(shuffled_names):
+            for j, name2 in enumerate(shuffled_names):
+                if j >= i:
+                    continue
+                if no_inherit_from & {name1, name2}:
+                    continue
+                actions1, actions2 = job_actions[name1], job_actions[name2]
+                if actions1 < actions2 or actions2 < actions1:
+                    no_inherit_from.add(random.choice((name1, name2)))
+
+        shuffle_skillsets = sorted(job_actions)
+        shuffle_skillsets += [
+            ss.index for ss in SkillsetObject.every
+            if ss.is_generic and ss.index not in self.BANNED_SKILLSET_SHUFFLE]
+        inherit_from = [ss for ss in shuffle_skillsets
+                        if ss not in no_inherit_from]
+        while len(inherit_from) < len(shuffle_skillsets):
+            inherit_from.append(random.choice(shuffle_skillsets))
+        assert set(inherit_from) <= set(shuffle_skillsets)
+        assert not set(shuffle_skillsets) & self.BANNED_SKILLSET_SHUFFLE
+        random.shuffle(inherit_from)
+
+        exchange_skills = {}
+        for key in shuffle_skillsets:
+            if key in job_actions:
+                actions = job_actions[key]
+            else:
+                actions = SkillsetObject.get(key).actions
+            actions = [a for a in sorted(actions) if a > 0]
+            max_exchange = (
+                len(actions) * (SkillsetObject.random_degree ** 0.5))
+            num_exchange = int(round(
+                random.uniform(random.uniform(0, max_exchange), max_exchange)))
+            to_exchange = random.sample(actions, num_exchange)
+            exchange_skills[key] = to_exchange
+
+        final_actions = {}
+        for base, inherit in zip(shuffle_skillsets, inherit_from):
+            if base in job_actions:
+                actions = job_actions[base]
+            else:
+                actions = SkillsetObject.get(base).actions
+            actions = [a for a in actions if a not in exchange_skills[base]]
+            actions += exchange_skills[inherit]
+            actions = [a for a in sorted(set(actions)) if a > 0]
+            if len(actions) > 16:
+                actions = random.sample(actions, 16)
+            final_actions[base] = actions
+
+        rsms.add(0x1e3)
+        rsms.add(0x1f3)
+        rsms = [rsm for rsm in sorted(rsms) if rsm > 0]
+        temp = list(rsms)
+        while len(temp) < rsm_count:
+            temp.append(random.choice(rsms))
+        rsms = temp
+
+        final_rsms = defaultdict(set)
+        candidates = sorted([name for name in shuffle_skillsets
+                             if isinstance(name, str)])
+        candidates += [sso.index for sso in SkillsetObject.every
+                       if sso.is_generic]
+        for rsm in rsms:
+            while True:
+                chosen = random.choice(candidates)
+                if len(final_rsms[chosen]) >= 6:
+                    continue
+                final_rsms[chosen].add(rsm)
+                break
+
+        done_skillsets = {}
+        for name in sorted(SkillsetObject.character_skillsets):
+            if name not in final_actions:
+                continue
+            skillsets = SkillsetObject.character_skillsets[name]
+            order_new = random.choice([True, False])
+            for ss in skillsets:
+                if ss.index in self.BANNED_SKILLSET_SHUFFLE:
+                    continue
+                actions = final_actions[name]
+                actions = [a for a in actions if a in ss.old_actions
+                           or a not in job_actions[name]]
+                ss.set_actions(actions, order_new)
+                ss.set_rsms(final_rsms[name])
+                if ss in done_skillsets:
+                    assert done_skillsets[ss] == name
+                else:
+                    done_skillsets[ss] = name
+
+        for ss in SkillsetObject.every:
+            if ss.is_generic:
+                if ss.index in final_actions:
+                    order_new = random.choice([True, False])
+                    ss.set_actions(final_actions[ss.index], order_new)
+                ss.set_rsms(final_rsms[ss.index])
+
+    def cleanup(self):
+        while len(self.actionbytes) < len(self.old_data['actionbytes']):
+            self.actionbytes.append(0)
+        while len(self.rsmbytes) < len(self.old_data['rsmbytes']):
+            self.rsmbytes.append(0)
+        if self.actions:
+            assert all(action <= 0x1a5 for action in self.actions)
+        if self.rsms:
+            assert all(rsm >= 0x1a6 for rsm in self.rsms if rsm > 0)
 
 
 class MonsterSkillsObject(TableObject): pass
@@ -700,6 +937,14 @@ class UnitObject(TableObject):
     @property
     def map_id(self):
         return self.index >> 4
+
+    @property
+    def character_name(self):
+        name_index = self.old_data['name_index']
+        name = names.characters[name_index]
+        if not name.strip():
+            return '{0:0>2X}-NO-NAME'.format(name_index)
+        return name
 
 
 class PropositionObject(TableObject):
