@@ -148,6 +148,11 @@ class JobObject(TableObject):
         'Beowulf', 'Cloud', 'Reis',
         }
 
+    GROUP_RECRUITABLE = 1
+    GROUP_LUCAVI = 2
+    GROUP_MONSTER = 3
+    GROUP_SPECIAL = 4
+
     randomselect_attributes = [
         ('hpgrowth', 'hpmult'),
         ('mpgrowth', 'mpmult'),
@@ -156,6 +161,14 @@ class JobObject(TableObject):
         ('magrowth', 'mamult'),
         'move', 'jump', 'evade',
         ]
+
+    mutate_attributes = {}
+    for key in randomselect_attributes:
+        if isinstance(key, str):
+            key = [key]
+        for attr in key:
+            if attr not in mutate_attributes:
+                mutate_attributes[attr] = None
 
     magic_mutate_bit_attributes = {
         ('equips',): (0xffffffff,),
@@ -171,6 +184,8 @@ class JobObject(TableObject):
 
         character_jobs = defaultdict(set)
         for u in UnitObject.every:
+            if u.map_index >= 0x1db:
+                continue
             if 'NO-NAME' not in u.character_name:
                 character_jobs[u.character_name].add(u.old_data['job'])
 
@@ -182,6 +197,35 @@ class JobObject(TableObject):
 
         return JobObject.character_jobs
 
+    @cached_property
+    def character_name(self):
+        names = [n for n in self.character_jobs
+                 if self in self.character_jobs[n]]
+        if not names:
+            return 'NONE'
+        if len(names) == 2 and 'RANDOM GENERIC' in names:
+            names.remove('RANDOM GENERIC')
+        return ','.join(sorted(names))
+
+    @cached_property
+    def relatives(self):
+        if self.character_name in ['NONE', 'RANDOM GENERIC']:
+            return [self]
+        relatives = [j for j in JobObject.every
+                     if j.character_name == self.character_name]
+        relatives = sorted(relatives, key=lambda r: (r.signature, r.index))
+        return relatives
+
+    @cached_property
+    def canonical_relative(self):
+        if self.character_name in ['NONE', 'RANDOM GENERIC']:
+            return self
+        return self.relatives[0]
+
+    @property
+    def is_canonical(self):
+        return self.canonical_relative is self
+
     @property
     def is_generic(self):
         return 0x4a <= self.index <= 0x5d
@@ -191,8 +235,63 @@ class JobObject(TableObject):
         return self.index >= 0x5e and self.index != 0x97
 
     @property
+    def is_lucavi(self):
+        return self.index in self.LUCAVI_ORDER
+
+    @property
     def is_special(self):
         return 1 <= self.index <= 0x49 or self.index == 0x97
+
+    @property
+    def intershuffle_group(self):
+        if self.is_generic or (self.is_canonical and self.character_name in
+                               self.STORYLINE_RECRUITABLE_NAMES):
+            return self.GROUP_RECRUITABLE
+        if self.is_lucavi:
+            return self.GROUP_LUCAVI
+        if self.is_monster:
+            return self.GROUP_MONSTER
+        if self.intershuffle_valid:
+            return self.GROUP_SPECIAL
+        return -1
+
+    @property
+    def intershuffle_valid(self):
+        for attr in self.mutate_attributes:
+            if self.old_data[attr] == 0:
+                return False
+        return True
+
+    @property
+    def rank(self):
+        if self.intershuffle_group == self.GROUP_RECRUITABLE:
+            return 1
+
+        if self.intershuffle_group == self.GROUP_LUCAVI:
+            return 1
+
+        if hasattr(self, '_rank'):
+            return self._rank
+
+        rank_attrs = set()
+        for attr in self.mutate_attributes:
+            rank_attr = '_%s_rank' % attr
+            rank_attrs.add(rank_attr)
+            reverse = attr.endswith('growth')
+            ranked = sorted(
+                JobObject.every, key=lambda j: (j.old_data[attr],
+                                                j.signature,
+                                                j.index), reverse=reverse)
+            max_index = len(ranked)-1
+            for i, j in enumerate(ranked):
+                setattr(j, rank_attr, i / max_index)
+
+        for j in JobObject.every:
+            ranks = [getattr(j, attr) for attr in sorted(rank_attrs)]
+            ranks.append(1 if j.is_lucavi else 0)
+            j._rank = sum(ranks) / len(ranks)
+
+        return self.rank
 
     @property
     def name(self):
@@ -203,6 +302,58 @@ class JobObject(TableObject):
 
     def magic_mutate_bits(self):
         super().magic_mutate_bits(random_degree=self.random_degree ** 0.5)
+
+    def preprocess(self):
+        for attr in self.old_data:
+            if attr.endswith('growth') and self.old_data[attr] == 0:
+                setattr(self, attr, 0xff)
+
+    def preclean(self):
+        if len(self.relatives) > 1:
+            for r in self.relatives:
+                my_equips = self.old_data['equips']
+                their_equips = r.old_data['equips']
+                if (my_equips & their_equips == their_equips and
+                        self.equips & r.equips != r.equips):
+                    if random.choice([True, False]):
+                        self.equips |= r.equips
+                    else:
+                        r.equips &= self.equips
+                    assert self.equips & r.equips == r.equips
+
+    def cleanup(self):
+        if not self.is_canonical:
+            canonical = self.canonical_relative
+            for attr in self.old_data:
+                if self.old_data[attr] == canonical.old_data[attr]:
+                    setattr(self, attr, getattr(canonical, attr))
+
+        if self.is_lucavi:
+            self.start_status &= self.BENEFICIAL_STATUSES
+            self.innate_status &= self.BENEFICIAL_STATUSES
+        self.innate_status ^= (self.innate_status & self.immune_status)
+        self.start_status ^= (self.start_status & self.immune_status)
+        self.start_status |= self.innate_status
+
+        innate_changes = (self.innate_status & (
+            self.innate_status ^ self.old_data['innate_status']))
+        invalid_innate = innate_changes & (
+            innate_changes ^ self.VALID_INNATE_STATUSES)
+        self.innate_status ^= invalid_innate
+
+        start_changes = (self.start_status & (
+            self.start_status ^ self.old_data['start_status']))
+        invalid_start = start_changes & (
+            start_changes ^ self.VALID_START_STATUSES)
+        self.start_status ^= invalid_start
+
+        if self.is_lucavi and get_difficulty() >= 1.0:
+            for attr in self.mutate_attributes:
+                value = getattr(self, attr)
+                if attr.endswith('growth'):
+                    setattr(self, attr, min(value, self.old_data[attr]))
+                else:
+                    setattr(self, attr, max(value, self.old_data[attr]))
 
 
 class ItemObject(MutateBoostMixin):
@@ -451,7 +602,6 @@ class SkillsetObject(TableObject):
                     pass
         return skillsets
 
-    @property
     def is_generic(self):
         return 5 <= self.index <= 0x18
 
@@ -935,7 +1085,7 @@ class UnitObject(TableObject):
     FIXED_WEATHER = [0x19f, 0x1b5, 0x1c2]
 
     @property
-    def map_id(self):
+    def map_index(self):
         return self.index >> 4
 
     @property
