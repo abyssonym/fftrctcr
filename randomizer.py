@@ -11,6 +11,7 @@ from randomtools.interface import (
     write_cue_file)
 
 from collections import Counter, defaultdict
+from hashlib import md5
 from math import ceil
 from os import path, walk
 from sys import argv
@@ -184,7 +185,7 @@ class JobObject(TableObject):
 
         character_jobs = defaultdict(set)
         for u in UnitObject.every:
-            if u.map_index >= 0x1db:
+            if u.entd >= 0x1db:
                 continue
             if 'NO-NAME' not in u.character_name:
                 character_jobs[u.character_name].add(u.old_data['job'])
@@ -307,6 +308,7 @@ class JobObject(TableObject):
         for attr in self.old_data:
             if attr.endswith('growth') and self.old_data[attr] == 0:
                 setattr(self, attr, 0xff)
+                self.old_data[attr] = 0xff
 
     def preclean(self):
         if len(self.relatives) > 1:
@@ -830,10 +832,8 @@ class MoveFindObject(TableObject):
         return self.index // 4
 
     @cached_property
-    def mesh(self):
-        for m in MeshObject.every:
-            if m.map_index == self.map_index:
-                return m
+    def map(self):
+        return GNSObject.get_by_map_index(self.map_index)
 
     @property
     def x(self):
@@ -856,14 +856,14 @@ class MoveFindObject(TableObject):
         self.coordinates = (x << 4) | y
 
     def mutate(self):
-        if self.mesh is None:
+        if self.map is None:
             return
 
         if self.map_index not in MoveFindObject.done_locations:
             MoveFindObject.done_locations[self.map_index] = set()
 
         if random.random() < self.random_degree ** 0.5:
-            valid_locations = self.mesh.get_tiles_compare_attribute(
+            valid_locations = self.map.get_tiles_compare_attribute(
                 'bad', False)
             valid_locations = [l for l in valid_locations if l not in
                                MoveFindObject.done_locations[self.map_index]]
@@ -886,8 +886,256 @@ class MoveFindObject(TableObject):
             random_degree=self.random_degree).index
 
 
-class FormationObject(TableObject): pass
-class EncounterObject(TableObject): pass
+class FormationObject(TableObject):
+    @property
+    def facing(self):
+        # values with 0 rotation
+        # rotate counterclockwise with rotation
+        # 0: west
+        # 1: south
+        # 2: east
+        # 3: north
+        return self.orientation >> 4
+
+    @property
+    def rotation(self):
+        # North is greater Y, East is greater X
+        # first == least significant
+        # 0: first bit in SW corner
+        # 1: first bit in SE corner
+        # 2: first bit in NE corner
+        # 3: first bit in NW corner
+        return self.orientation & 0xf
+
+    @property
+    def encounters(self):
+        return [e for e in EncounterObject.every if self in e.formations]
+
+    @property
+    def entd(self):
+        entds = {e.entd for e in EncounterObject.every if self in e.formations}
+        assert len(entds) <= 1
+        if entds:
+            return list(entds)[0]
+        return None
+
+    @property
+    def map(self):
+        return GNSObject.get_by_map_index(self.map_index)
+
+    @property
+    def is_unused(self):
+        if hasattr(self, '_claimed') and self._claimed:
+            return False
+        return self.bitmap == 0 and self.map_index == 0
+
+    @classmethod
+    def get_unused(self):
+        for f in FormationObject.every:
+            if f.is_unused:
+                f._claimed = True
+                return f
+
+    def pick_correct_orientation(self):
+        margin_x = min(self.x, self.map.width - (self.x + 1))
+        margin_y = min(self.y, self.map.length - (self.y + 1))
+        if (margin_x > margin_y or
+                (margin_x == margin_y and random.choice([True, False]))):
+            if self.y < (self.map.length / 2):
+                # face north
+                value = 3
+            else:
+                # south
+                value = 1
+        else:
+            if self.x < (self.map.width / 2):
+                # east
+                value = 2
+            else:
+                # west
+                value = 0
+        self.orientation = value
+
+    def generate(self, map_index, num_characters):
+        self.map_index = map_index
+        self.num_characters = num_characters
+        tiles = self.map.get_recommended_tiles()
+        max_index = len(tiles)-1
+        while True:
+            index = random.randint(random.randint(0, max_index), max_index)
+            x, y = tiles[index]
+            if random.choice([True, False]):
+                x = max(1, min(x, self.map.width-2))
+            if random.choice([True, False]):
+                y = max(1, min(y, self.map.length-2))
+            i_low = random.randint(-1, 0) + random.randint(-1, 0)
+            i_high = random.randint(0, 1) + random.randint(0, 1)
+            j_low = random.randint(-1, 0) + random.randint(-1, 0)
+            j_high = random.randint(0, 1) + random.randint(0, 1)
+            window = [(i, j) for (i, j) in tiles
+                      if x + i_low <= i <= x + i_high
+                      and y + j_low <= j <= y + j_high]
+            window = [self.map.primary_meshes[0].get_tile(*t) for t in window]
+            zs = [t.z for t in window]
+            z = random.choice(zs)
+            root_tile = self.map.primary_meshes[0].get_tile(x, y)
+            k_low, k_high = 0, 0
+            while k_low > -2 and random.choice([True, False, False, False]):
+                k_low -= 1
+            while k_high < 2 and random.choice([True, False, False, False]):
+                k_high += 1
+            window = [t for t in window
+                      if z - k_low <= t.z <= z + k_high]
+            if len(window) > num_characters:
+                break
+            elif (len(window) == num_characters
+                    and random.choice([True, False, False, False])):
+                break
+
+        self.x = root_tile.x
+        self.y = root_tile.y
+        bitmap = 0
+        for t in window:
+            i = t.x - self.x
+            j = t.y - self.y
+            i, j = i + 2, j + 2
+            assert 0 <= i <= 4
+            assert 0 <= j <= 4
+            # yes, the bitmap is indexed vertically
+            index = (i * 5) + j
+            bitmap |= (1 << index)
+            self.map.set_party(t.x, t.y)
+
+        self.bitmap = bitmap
+        self.orientation = 0
+        self.pick_correct_orientation()
+
+    def preprocess(self):
+        if (self.index == 0xe8 and self.map_index == 0x74
+                and self.entd == 0x1cc):
+            assert all(e.map_index == 0x32 for e in self.encounters)
+            self.map_index = 0x32
+            self.old_data['map_index'] = 0x32
+
+    def cleanup(self):
+        if self.encounters:
+            assert {self.map_index} == {e.map_index for e in self.encounters}
+
+
+class EncounterObject(TableObject):
+    MAP_MOVEMENTS_FILENAME = path.join(tblpath, 'map_movements.txt')
+    map_movements = defaultdict(list)
+    for line in open(MAP_MOVEMENTS_FILENAME):
+        map_index, data = line.split()
+        map_index = int(map_index, 0x10)
+        unit, x, y = data.split(',')
+        unit = int(unit, 0x10)
+        x, y = int(x), int(y)
+        map_movements[map_index].append((unit, x, y))
+
+    @classproperty
+    def after_order(self):
+        return [GNSObject]
+
+    @cached_property
+    def canonical_relative(self):
+        if self.old_data['entd'] == 0:
+            return self
+        for e in EncounterObject.every:
+            if e.old_data['entd'] == self.old_data['entd']:
+                return e
+
+    @property
+    def is_canonical(self):
+        return self.canonical_relative is self
+
+    @property
+    def units(self):
+        return [u for u in UnitObject.every if u.entd == self.entd]
+
+    @property
+    def map(self):
+        return GNSObject.get_by_map_index(self.map_index)
+
+    @property
+    def movements(self):
+        return self.map_movements[self.map_index]
+
+    @property
+    def formations(self):
+        return [FormationObject.get(f) for f in self.formation_indexes if f]
+
+    @property
+    def old_formations(self):
+        return [FormationObject.get(f) for f in
+                self.old_data['formation_indexes'] if f]
+
+    def set_formations(self, f1, f2=0):
+        f1 = f1.index
+        f2 = f2.index if f2 else f2
+        self.formation_indexes = [f1, f2]
+
+    def set_occupied(self):
+        for u, x, y in self.movements:
+            self.map.set_occupied(x, y)
+
+    def preprocess(self):
+        self.set_occupied()
+        if self.index == 0x1b2 and self.formation_indexes == [232, 324]:
+            self.formation_indexes = [323, 324]
+            self.old_data['formation_indexes'] = self.formation_indexes
+
+    def generate_formations(self):
+        # two cases: enemy locations randomized & not
+        # problem: duplicate encounter objects / canonical
+        templates = [e for e in EncounterObject.every if e.formations]
+        template = random.choice(templates)
+        num_formations = len(template.old_formations)
+        num_characters = sum([f.num_characters for f in self.old_formations])
+        if num_characters == 0:
+            return
+        assert 1 <= num_formations <= 2
+        if num_formations == 2:
+            numchars = [f.num_characters for f in template.old_formations]
+            random.shuffle(numchars)
+            ratio = numchars[0] / sum(numchars)
+            n1 = int(round(num_characters * ratio))
+            n2 = num_characters - n1
+            assert 1 <= n1 < num_characters
+            assert 1 <= n2 < num_characters
+            assert n1 + n2 == num_characters
+            f1 = FormationObject.get_unused()
+            f1.generate(self.map_index, n1)
+            f2 = FormationObject.get_unused()
+            f2.generate(self.map_index, n2)
+            self.set_formations(f1, f2)
+        else:
+            f = FormationObject.get_unused()
+            f.generate(self.map_index, num_characters)
+            self.set_formations(f)
+
+        # do this after creating new units?
+        units = list(self.units)
+        random.shuffle(units)
+        for u in units:
+            if u.get_bit('randomly_present') or u.get_bit('always_present'):
+                u.find_appropriate_position()
+
+        print('ENTD {0:0>3X}'.format(self.entd))
+
+    def randomize(self):
+        if self.old_data['entd'] == 0:
+            return
+        if self.is_canonical:
+            self.generate_formations()
+
+    def cleanup(self):
+        for attr in self.old_data:
+            if self.old_data[attr] == self.canonical_relative.old_data[attr]:
+                setattr(self, attr, getattr(self.canonical_relative, attr))
+
+        for f in self.formations:
+            assert f.map_index == self.map_index
 
 
 class MapMixin(TableObject):
@@ -896,6 +1144,16 @@ class MapMixin(TableObject):
         filename = path.split(self.filename)[-1]
         base, extension = filename.split('.')
         return int(base[-3:])
+
+    @classmethod
+    def get_by_map_index(self, map_index):
+        result = [m for m in self.every if m.map_index == map_index]
+        if len(result) == 1:
+            return result[0]
+
+    @classmethod
+    def get_all_by_map_index(self, map_index):
+        return [m for m in self.every if m.map_index == map_index]
 
     def read_data(self, filename=None, pointer=None):
         f = get_open_file(self.filename)
@@ -911,6 +1169,10 @@ class MapMixin(TableObject):
             if hasattr(self, '_property_cache'):
                 del(self._property_cache)
             self._loaded_from = filename
+
+        for e in EncounterObject.every:
+            if e.map_index == self.map_index:
+                e.set_occupied()
 
     def write_data(self, filename=None, pointer=None):
         f = get_open_file(self.filename)
@@ -938,6 +1200,24 @@ class GNSObject(MapMixin):
             if index not in CUSTOM_INDEX_OPTIONS:
                 CUSTOM_INDEX_OPTIONS[index] = [None]
             CUSTOM_INDEX_OPTIONS[index].append(sorted(filepaths))
+
+    @cached_property
+    def meshes(self):
+        return MeshObject.get_all_by_map_index(self.map_index)
+
+    @property
+    def primary_meshes(self):
+        return [m for m in self.meshes if m.tiles]
+
+    @property
+    def width(self):
+        widths = {m.width for m in self.primary_meshes}
+        return max(widths)
+
+    @property
+    def length(self):
+        lengths = {m.length for m in self.primary_meshes}
+        return max(lengths)
 
     def randomize(self):
         if self.map_index not in self.CUSTOM_INDEX_OPTIONS:
@@ -967,6 +1247,145 @@ class GNSObject(MapMixin):
             raise Exception(
                 'Unused files: {0}'.format(' '.join(sorted(unused))))
 
+    def get_tiles_compare_attribute(self, attribute, value,
+                                    upper=False, compare_function=None):
+        if compare_function is None:
+            compare_function = lambda a, b: a == b
+        width = min(m.width for m in self.primary_meshes)
+        length = min(m.length for m in self.primary_meshes)
+        coordinates = set()
+        for y in range(length):
+            for x in range(width):
+                values = {getattr(m.get_tile(x, y, upper=upper), attribute)
+                          for m in self.primary_meshes
+                          if x < m.width and y < m.length}
+                if all(compare_function(v, value) for v in values):
+                    coordinates.add((x, y))
+        return sorted(coordinates)
+
+    def get_tile_attribute(self, x, y, attribute, upper=False):
+        values = {getattr(m.get_tile(x, y, upper=upper), attribute)
+                  for m in self.primary_meshes if x < m.width and y < m.length}
+        if len(values) == 1:
+            return list(values)[0]
+        return values
+
+    def set_occupied(self, x, y):
+        for m in self.primary_meshes:
+            try:
+                t = m.get_tile(x, y)
+                t.occupied = True
+                t = m.get_tile(x, y, upper=True)
+                t.occupied = True
+            except IndexError:
+                pass
+
+    def set_party(self, x, y):
+        self.set_occupied(x, y)
+        for m in self.primary_meshes:
+            try:
+                t = m.get_tile(x, y)
+                assert not t.bad_regardless
+                t.party = True
+                t = m.get_tile(x, y, upper=True)
+                t.party = True
+            except IndexError:
+                pass
+
+    def generate_heatmap(self, tiles):
+        MAX_DISTANCE = 6
+        heat_values = [100 ** (0.5 ** i) for i in range(MAX_DISTANCE+1)]
+        heatmap = [[0] * self.width for _ in range(self.length)]
+        heatmap[0][0] = None
+        assert heatmap[1][0] is not None
+        heatmap[0][0] = 0
+        for (x, y) in tiles:
+            for i in range(x-MAX_DISTANCE, x+MAX_DISTANCE+1):
+                x_distance = abs(x-i)
+                if not 0 <= i < self.width:
+                    continue
+                for j in range(y-MAX_DISTANCE, y+MAX_DISTANCE+1):
+                    y_distance = abs(y-j)
+                    if not 0 <= j < self.length:
+                        continue
+                    total_distance = x_distance + y_distance
+                    if total_distance > MAX_DISTANCE:
+                        continue
+                    heatmap[j][i] += heat_values[total_distance]
+        return heatmap
+
+    def generate_occupied_heatmap(self, attribute='occupied'):
+        occupied_tiles = self.get_tiles_compare_attribute(attribute, True)
+        return self.generate_heatmap(occupied_tiles)
+
+    def get_recommended_tiles(self, attribute='occupied'):
+        avg_x = (self.width-1) / 2
+        avg_y = (self.length-1) / 2
+        heatmap = self.generate_occupied_heatmap(attribute)
+        def sortfunc(x_y):
+            x, y = x_y
+            sig = '%s%s%s' % (x, y, self.signature)
+            sig = md5(sig.encode('ascii')).hexdigest()
+            uncenteredness = max(abs(x-avg_x), abs(y-avg_y)) / 100
+            score = heatmap[y][x] - uncenteredness
+            return score, sig
+
+        candidates = self.get_tiles_compare_attribute('bad', False)
+        ranked = sorted(candidates, key=sortfunc, reverse=True)
+        return ranked
+
+    def get_recommended_tiles_ally(self):
+        ranked = self.get_recommended_tiles('party')
+        return list(reversed(ranked))
+
+    def get_recommended_tiles_enemy(self):
+        partymap = self.generate_occupied_heatmap('party')
+        enemymap = self.generate_occupied_heatmap('enemy')
+        enemy_tiles = self.get_tiles_compare_attribute('enemy', True)
+        def sortfunc(x_y):
+            x, y = x_y
+            if (x, y) in enemy_tiles:
+                raise Exception('There should not be an enemy here.')
+            sig = '%s%s%s' % (x, y, self.signature)
+            sig = md5(sig.encode('ascii')).hexdigest()
+            partyval = 1 + partymap[y][x]
+            enemyval = 1 + enemymap[y][x]
+            distances = []
+            for ex, ey in enemy_tiles:
+                distances.append(abs(x-ex) + abs(y-ey))
+            distances = [1/(d**2) for d in distances]
+            clumping = 1 + sum(distances)
+            score = enemyval / (partyval * partyval * clumping)
+            return score, sig
+
+        candidates = self.get_tiles_compare_attribute('bad', False)
+        ranked = sorted(candidates, key=sortfunc)
+        return ranked
+
+    @property
+    def pretty_occupied_heatmap(self):
+        heatmap = self.generate_occupied_heatmap()
+        s = 'Y = %s\n' % (self.length-1)
+        enemy_tiles = self.get_tiles_compare_attribute('enemy', True)
+        party_tiles = self.get_tiles_compare_attribute('party', True)
+        bad_tiles = self.get_tiles_compare_attribute('bad_regardless', True)
+        for j in range(len(heatmap)-1, -1, -1):
+            row = heatmap[j]
+            for i, value in enumerate(row):
+                if (i, j) in bad_tiles:
+                    value = '--'
+                elif (i, j) in party_tiles:
+                    value = '##'
+                elif (i, j) in enemy_tiles:
+                    value = 'XX'
+                else:
+                    value = int(round(value))
+                    value = '{0:0>2}'.format(value)
+                s += value + ' '
+            s = s.strip() + '\n'
+        s += 'Y = 0'
+        return s.strip()
+
 
 class MeshObject(MapMixin):
     @classproperty
@@ -974,7 +1393,7 @@ class MeshObject(MapMixin):
         return [GNSObject]
 
     class Tile:
-        def __init__(self, bytestring, x, y):
+        def __init__(self, bytestring, x, y, upper=False):
             bytestring = [c for c in bytestring]
             self.terrain_type = bytestring[0] & 0x3F
             self.height = bytestring[2]
@@ -983,41 +1402,48 @@ class MeshObject(MapMixin):
             self.slope_type = bytestring[4]
             self.impassable = (bytestring[6] >> 1) & 1
             self.uncursorable = bytestring[6] & 1
-            self.occupied = 0
-            self.party = 0
-            self.upper = 0
-            self.unreachable = 0
+            self.occupied = False
+            self.party = False
+            self.unreachable = False
             self.x, self.y = x, y
+            self.upper = upper
+
+        @property
+        def z(self):
+            return self.height - self.depth
 
         @property
         def bad(self):
             if self.occupied or self.unreachable:
-                return 1
+                return True
             if self.terrain_type in [0x12, 0x24]:
                 # bad terrain : lava, water plant
-                return 1
+                return True
             return self.bad_regardless
 
         @property
         def bad_regardless(self):
             if self.impassable | self.uncursorable:
-                return 1
+                return True
             if self.slope_height > 2:
-                return 1
+                return True
             if self.depth > 2:
-                return 1
-            return 0
+                return True
+            return False
 
-        def set_unreachable(self, unreachable=1):
+        def set_unreachable(self, unreachable=True):
             self.unreachable = unreachable
 
-        def set_occupied(self, occupied=1):
-            self.occupied = occupied
+        @property
+        def enemy(self):
+            return self.occupied and not self.party
 
-        def set_party(self, party=1):
-            assert not self.occupied
-            self.party = party
-            self.set_occupied()
+    @property
+    def gns(self):
+        gnss = [gns for gns in GNSObject.every
+                if gns.map_index == self.map_index]
+        if len(gnss) == 1:
+            return gnss[0]
 
     @property
     def terrain_addr(self):
@@ -1044,34 +1470,21 @@ class MeshObject(MapMixin):
     def upper(self):
         pointer = self.terrain_addr + 2 + 2048
         block = self.data[pointer:pointer+2048]
-        return [self.Tile(block[i*8:(i+1)*8], i % self.width, i // self.width)
+        return [self.Tile(block[i*8:(i+1)*8], i % self.width, i // self.width,
+                          upper=True)
                 for i in range(self.width * self.length)]
 
-    @classmethod
-    def get_by_map_index(self, map_index):
-        return [m for m in MeshObject.every if m.map_index == map_index]
-
-    def get_tile(self, x, y):
+    def get_tile(self, x, y, upper=False):
         index = (y * self.width) + x
-        tile = self.tiles[index]
+        if upper:
+            tile = self.upper[index]
+        else:
+            tile = self.tiles[index]
         assert (tile.x, tile.y) == (x, y)
         return tile
 
-    def get_tiles_compare_attribute(self, attribute, value,
-                                    compare_function=None):
-        if compare_function is None:
-            compare_function = lambda a, b: a == b
-        meshes = MeshObject.get_by_map_index(self.map_index)
-        meshes = [m for m in meshes if m.width * m.length > 0]
-        width = min(m.width for m in meshes)
-        length = min(m.length for m in meshes)
-        coordinates = set()
-        for y in range(length):
-            for x in range(width):
-                values = {getattr(m.get_tile(x, y), attribute) for m in meshes}
-                if all(compare_function(v, value) for v in values):
-                    coordinates.add((x, y))
-        return sorted(coordinates)
+    def get_tiles_compare_attribute(self, *args, **kwargs):
+        return self.gns.get_tiles_compare_attribute(*args, **kwargs)
 
 
 class TextureObject(MapMixin): pass
@@ -1085,8 +1498,22 @@ class UnitObject(TableObject):
     FIXED_WEATHER = [0x19f, 0x1b5, 0x1c2]
 
     @property
-    def map_index(self):
+    def entd(self):
         return self.index >> 4
+
+    @property
+    def neighbors(self):
+        if hasattr(self, '_neighbors'):
+            return self._neighbors
+
+        neighbors_dict = defaultdict(list)
+        for u in UnitObject.every:
+            neighbors_dict[u.entd].append(u)
+
+        for u in UnitObject.every:
+            u._neighbors = neighbors_dict[u.entd]
+
+        return self.neighbors
 
     @property
     def character_name(self):
@@ -1095,6 +1522,132 @@ class UnitObject(TableObject):
         if not name.strip():
             return '{0:0>2X}-NO-NAME'.format(name_index)
         return name
+
+    @property
+    def is_ally(self):
+        return not (
+            self.get_bit('enemy_team') or self.get_bit('alternate_team'))
+
+    @property
+    def is_present(self):
+        return (
+            self.get_bit('randomly_present') or self.get_bit('always_present'))
+
+    @property
+    def is_unimportant(self):
+        if not self.is_present:
+            return True
+        if self.character_name == 'RANDOM GENERIC':
+            return True
+        if 'NO-NAME' in self.character_name:
+            return True
+        return False
+
+    @property
+    def map(self):
+        indexes = {e.map_index for e in EncounterObject.every
+                   if e.entd == self.entd}
+        if len(indexes) == 1:
+            return GNSObject.get(list(indexes)[0])
+
+    @property
+    def old_map(self):
+        indexes = {e.old_data['map_index'] for e in EncounterObject.every
+                   if e.old_data['entd'] == self.entd}
+        if len(indexes) == 1:
+            return GNSObject.get(list(indexes)[0])
+
+    def fix_facing(self):
+        # 0: south, 1: west, 2: north, 3: east
+        m = self.map
+        dirdict = {
+            "west": self.x, "south": self.y,
+            "east": m.width - self.x, "north": m.length - self.y}
+        facedict = {
+            "west": 3, "south": 2, "east": 1, "north": 0}
+        lowest = min(dirdict.values())
+        candidates = sorted([v for (k, v) in facedict.items()
+                             if dirdict[k] == lowest])
+        chosen = random.choice(candidates)
+        self.facing &= 0xFC
+        self.facing |= chosen
+
+    @property
+    def is_upper(self):
+        return bool(self.facing & 0x80)
+
+    def set_upper(self, upper):
+        if upper:
+            self.facing |= 0x80
+        else:
+            self.facing &= 0x7f
+
+    def relocate(self, x, y):
+        if self.is_ally:
+            self.map.set_party(x, y)
+        else:
+            self.map.set_occupied(x, y)
+        self.x = x
+        self.y = y
+        self.set_upper(False)
+        if not self.map.get_tile_attribute(self.x, self.y, 'bad_regardless',
+                                           upper=True):
+            if random.choice([True, True, False]):
+                self.set_upper(True)
+
+    def find_appropriate_position(self):
+        if self.is_ally:
+            tiles = self.map.get_recommended_tiles_ally()
+        else:
+            tiles = self.map.get_recommended_tiles_enemy()
+
+        max_index = len(tiles)-1
+        index = random.randint(random.randint(0, max_index), max_index)
+        x, y = tiles[index]
+
+        self.relocate(x, y)
+        self.fix_facing()
+
+    def relocate_nearest_good_tile(self):
+        neighbor_coordinates = [(u.x, u.y) for u in self.neighbors
+                                if u.is_present]
+        valid_tiles = self.map.get_tiles_compare_attribute('bad', False)
+        for distance in range(16):
+            candidates = [(x, y) for (x, y) in valid_tiles
+                          if abs(x-self.x) + abs(y-self.y) <= distance
+                          and (x, y) not in neighbor_coordinates]
+            if candidates:
+                x, y = random.choice(candidates)
+                self.relocate(x, y)
+                break
+        else:
+            raise Exception('No good tiles.')
+
+    def preprocess(self):
+        if self.index == 0x153d and self.is_unimportant:
+            self.set_bit('always_present', False)
+            self.old_data['misc2'] = self.misc2
+
+    def preclean(self):
+        if self.is_present and self.map is not None:
+            badness = self.map.get_tile_attribute(
+                self.x, self.y, 'bad_regardless', upper=self.is_upper)
+            try:
+                assert badness is not True
+                if badness is not False:
+                    assert (self.x == self.old_data['x'] and
+                            self.y == self.old_data['y'] and
+                            self.map == self.old_map and False in badness)
+            except AssertionError:
+                self.relocate_nearest_good_tile()
+                self.preclean()
+
+    def cleanup(self):
+        if self.get_bit('always_present'):
+            for u in self.neighbors:
+                if u.get_bit('always_present') and u is not self:
+                    assert (u.x, u.y) != (self.x, self.y) or (
+                        u.is_unimportant and self.is_unimportant)
 
 
 class PropositionObject(TableObject):

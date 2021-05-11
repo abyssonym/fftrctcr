@@ -1,11 +1,10 @@
 scenario,2
-map_id,1
+map_index,1
 weather,1
 night,1
 music,2,list
 entd,2
-grid,2
-grid2,2
+formation_indexes,2x2,list
 unknown0,4
 ramza,1
 next_scene,2
