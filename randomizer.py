@@ -975,13 +975,9 @@ class JobReqObject(TableObject):
             elif attr.endswith(job_prefix):
                 return value & 0xf
 
-    def get_req_recursive(self, job_prefix):
-        return self.get_recursive_reqs()[job_prefix[:3]]
-
     def set_req(self, job_prefix, level):
         for attr in self.old_data:
             value = getattr(self, attr)
-            oldvalue = value
             if attr.startswith(job_prefix):
                 value &= 0x0f
                 value |= (level << 4)
@@ -1252,6 +1248,8 @@ class FormationObject(TableObject):
             window = [(i, j) for (i, j) in tiles
                       if x + i_low <= i <= x + i_high
                       and y + j_low <= j <= y + j_high]
+            if not window:
+                continue
             window = [self.map.primary_meshes[0].get_tile(*t) for t in window]
             zs = [t.z for t in window]
             z = random.choice(zs)
@@ -1414,11 +1412,15 @@ class EncounterObject(TableObject):
 
 
 class MapMixin(TableObject):
-    @property
+    @cached_property
     def map_index(self):
         filename = path.split(self.filename)[-1]
         base, extension = filename.split('.')
         return int(base[-3:])
+
+    @property
+    def gns(self):
+        return GNSObject.get(self.map_index)
 
     @classmethod
     def get_by_map_index(self, map_index):
@@ -1443,6 +1445,8 @@ class MapMixin(TableObject):
             self.data = data
             if hasattr(self, '_property_cache'):
                 del(self._property_cache)
+            if hasattr(self.gns, '_property_cache'):
+                del(self.gns._property_cache)
             self._loaded_from = filename
 
         for e in EncounterObject.every:
@@ -1480,7 +1484,7 @@ class GNSObject(MapMixin):
     def meshes(self):
         return MeshObject.get_all_by_map_index(self.map_index)
 
-    @property
+    @cached_property
     def primary_meshes(self):
         return [m for m in self.meshes if m.tiles]
 
@@ -1567,31 +1571,30 @@ class GNSObject(MapMixin):
             except IndexError:
                 pass
 
-    def generate_heatmap(self, tiles):
-        MAX_DISTANCE = 6
-        heat_values = [100 ** (0.5 ** i) for i in range(MAX_DISTANCE+1)]
+    def generate_heatmap(self, tiles, max_distance=10):
+        heat_values = [100 ** (0.5 ** i) for i in range(max_distance+1)]
         heatmap = [[0] * self.width for _ in range(self.length)]
         heatmap[0][0] = None
         assert heatmap[1][0] is not None
         heatmap[0][0] = 0
         for (x, y) in tiles:
-            for i in range(x-MAX_DISTANCE, x+MAX_DISTANCE+1):
+            min_x = max(0, x-max_distance)
+            max_x = min(self.width-1, x+max_distance)
+            min_y = max(0, y-max_distance)
+            max_y = min(self.length-1, y+max_distance)
+            for i in range(min_x, max_x+1):
                 x_distance = abs(x-i)
-                if not 0 <= i < self.width:
-                    continue
-                for j in range(y-MAX_DISTANCE, y+MAX_DISTANCE+1):
+                for j in range(min_y, max_y+1):
                     y_distance = abs(y-j)
-                    if not 0 <= j < self.length:
-                        continue
                     total_distance = x_distance + y_distance
-                    if total_distance > MAX_DISTANCE:
+                    if total_distance > max_distance:
                         continue
                     heatmap[j][i] += heat_values[total_distance]
         return heatmap
 
-    def generate_occupied_heatmap(self, attribute='occupied'):
+    def generate_occupied_heatmap(self, attribute='occupied', max_distance=10):
         occupied_tiles = self.get_tiles_compare_attribute(attribute, True)
-        return self.generate_heatmap(occupied_tiles)
+        return self.generate_heatmap(occupied_tiles, max_distance)
 
     def get_recommended_tiles(self, attribute='occupied'):
         avg_x = (self.width-1) / 2
@@ -1618,7 +1621,7 @@ class GNSObject(MapMixin):
         enemy_tiles = self.get_tiles_compare_attribute('enemy', True)
         def sortfunc(x_y):
             x, y = x_y
-            if (x, y) in enemy_tiles:
+            if DEBUG and (x, y) in enemy_tiles:
                 raise Exception('There should not be an enemy here.')
             sig = hashstring('%s%s%s' % (x, y, self.signature))
             partyval = 1 + partymap[y][x]
