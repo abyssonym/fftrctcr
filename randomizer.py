@@ -13,7 +13,7 @@ from randomtools.interface import (
 from collections import Counter, defaultdict
 from hashlib import md5
 from math import ceil
-from os import path, walk
+from os import path, walk, environ
 from sys import argv
 from traceback import format_exc
 
@@ -22,9 +22,14 @@ import re
 
 VERSION = '1'
 ALL_OBJECTS = None
+DEBUG = environ.get('DEBUG')
 
 def lange(*args):
     return list(range(*args))
+
+
+def hashstring(s):
+    return md5(s.encode('ascii')).hexdigest()
 
 
 class MutateBoostMixin(TableObject):
@@ -34,7 +39,7 @@ class MutateBoostMixin(TableObject):
             minval, maxval = self.mutate_attributes[attr]
             value = getattr(self, attr)
             if minval <= value <= maxval:
-                while random.random() < self.random_degree ** 2.5:
+                while random.random() < (self.random_degree ** 2) / 2:
                     value += random.randint(-1, 1)
                     value = max(minval, min(maxval, value))
                     setattr(self, attr, value)
@@ -815,7 +820,279 @@ class PoachObject(TableObject):
         }
 
 
-class JobReqObject(TableObject): pass
+class JobReqObject(TableObject):
+    BANNED_REQS = ('bar', 'dan')
+    CALC_REQS = ('pri', 'wiz', 'tim', 'ora')
+
+    @classproperty
+    def jobtree(self):
+        jobreqs = sorted(self.every, key=lambda j: j.total_levels)
+        jobtree = {}
+        for j in jobreqs:
+            jobtree[j] = set([])
+
+        categorized = set([])
+        for j in jobreqs:
+            chosen = None
+            for j2 in jobreqs:
+                if j2.reqs_are_strict_subset_of(j) and j.get_req(j2.name) > 0:
+                    if not chosen or chosen.reqs_are_strict_subset_of(j2):
+                        chosen = j2
+                    elif j2.reqs_are_strict_subset_of(chosen):
+                        pass
+                    else:
+                        chosen = max(
+                            [j2, chosen],
+                            key=lambda j3: (
+                                j3.total_levels + j.get_req(j3.name),
+                                j.get_req(j3.name), j3.index))
+
+            if chosen is not None:
+                jobtree[chosen].add(j)
+                categorized.add(j)
+
+        def recurse(j):
+            s = "%s:" % j.name.upper()
+            prereqs = j.get_simplified_reqs()
+            for key in sorted(JobObject.GENERIC_NAMES):
+                key = key[:3]
+                if key not in prereqs:
+                    continue
+                value = prereqs[key]
+                if value > 0:
+                    s += " %s %s," % (value, key[:3])
+            s = s.strip(",")
+            s += "\n"
+            for j2 in sorted(jobtree[j], key=lambda j3: j3.name):
+                s += recurse(j2) + "\n"
+            s = s.strip()
+            s = s.replace("\n", "\n    ")
+            return s
+
+        treestr = ""
+        for j in sorted(jobtree.keys(), key=lambda j3: j3.name):
+            if j not in categorized:
+                treestr += recurse(j) + "\n\n"
+        treestr = treestr.strip()
+        return treestr
+
+    @classmethod
+    def get_by_name(self, name):
+        jros = [j for j in JobReqObject.every if j.name == name[:3]]
+        if len(jros) == 1:
+            return jros[0]
+
+    @property
+    def name(self):
+        return JobObject.GENERIC_NAMES[self.index+1][:3]
+
+    @property
+    def rank(self):
+        return self.get_jp_total(old=True)
+
+    @property
+    def total_levels(self):
+        return sum(self.get_recursive_reqs().values())
+
+    def get_jp_total(self, old=False):
+        levels = self.get_recursive_reqs(old=old).values()
+        jps = [JobJPReqObject.get(level-1).jp for level in levels if level > 0]
+        return sum(jps)
+
+    def get_recursive_reqs(self, old=False):
+        reqs = defaultdict(int)
+        names = [name[:3] for name in JobObject.GENERIC_NAMES]
+        done_names = set()
+        while True:
+            old_reqs = dict(reqs)
+            for name in names:
+                if name in done_names:
+                    continue
+                level = self.get_req(name, old=old)
+                if level > 0 or reqs[name] > 0:
+                    reqs[name] = max(reqs[name], level)
+                    other = JobReqObject.get_by_name(name)
+                    if other is not None:
+                        for other_name in names:
+                            other_level = other.get_req(other_name, old=old)
+                            reqs[other_name] = max(reqs[other_name],
+                                                   other_level)
+                    done_names.add(name)
+            if reqs == old_reqs:
+                break
+
+        return old_reqs
+
+    def reqs_are_subset_of(self, other):
+        self_reqs, other_reqs = (self.get_recursive_reqs(),
+                                 other.get_recursive_reqs())
+        for job_prefix in JobObject.GENERIC_NAMES:
+            job_prefix = job_prefix[:3]
+            if (self_reqs[job_prefix]
+                    > other_reqs[job_prefix]):
+                return False
+        return True
+
+    def same_reqs(self, other):
+        self_reqs, other_reqs = (self.get_recursive_reqs(),
+                                 other.get_recursive_reqs())
+        for job_prefix in JobObject.GENERIC_NAMES:
+            job_prefix = job_prefix[:3]
+            if (self_reqs[job_prefix]
+                    != other_reqs[job_prefix]):
+                return False
+        return True
+
+    def reqs_are_strict_subset_of(self, other):
+        return self.reqs_are_subset_of(other) and not self.same_reqs(other)
+
+    def get_simplified_reqs(self, old=False):
+        reqs = self.get_recursive_reqs(old=old)
+        for name in sorted(reqs):
+            if name == 'squ':
+                continue
+            if reqs[name] <= 0:
+                continue
+            old_value = reqs[name]
+            jro = JobReqObject.get_by_name(name)
+            sub_reqs = jro.get_recursive_reqs(old=old)
+            for sub_name in sub_reqs:
+                if sub_reqs[sub_name] >= reqs[sub_name]:
+                    reqs[sub_name] = 0
+            assert reqs[name] == old_value
+        reqs = {k: v for k, v in reqs.items() if v > 0}
+        return reqs
+
+    def get_req(self, job_prefix, old=False):
+        job_prefix = job_prefix[:3]
+        for attr in self.old_data:
+            if old:
+                value = self.old_data[attr]
+            else:
+                value = getattr(self, attr)
+            if attr.startswith(job_prefix):
+                return value >> 4
+            elif attr.endswith(job_prefix):
+                return value & 0xf
+
+    def get_req_recursive(self, job_prefix):
+        return self.get_recursive_reqs()[job_prefix[:3]]
+
+    def set_req(self, job_prefix, level):
+        for attr in self.old_data:
+            value = getattr(self, attr)
+            oldvalue = value
+            if attr.startswith(job_prefix):
+                value &= 0x0f
+                value |= (level << 4)
+                setattr(self, attr, value)
+                break
+            elif attr.endswith(job_prefix):
+                value &= 0xf0
+                value |= level
+                setattr(self, attr, value)
+                break
+
+    def increment_req(self, job_prefix):
+        value = self.get_req(job_prefix)
+        if value < 8:
+            self.set_req(job_prefix, value + 1)
+
+    def clear_reqs(self):
+        for attr in self.old_data:
+            setattr(self, attr, 0)
+
+    @classmethod
+    def randomize_all(self):
+        old_ranked = self.ranked
+        jp_values = [jro.get_similar().get_jp_total(old=True)
+                     for jro in old_ranked]
+        max_jp = max(jp_values)
+        jp_values = [mutate_normal(jp, 0, max_jp,
+                                   random_degree=self.random_degree)
+                     for jp in jp_values]
+        jp_values = [round(jp * 2, -2) // 2 for jp in jp_values]
+        jp_values = sorted(jp_values)
+
+        while True:
+            job_pools = [[], []]
+            if random.choice([True, False]):
+                job_pools.append([])
+            for name in JobObject.GENERIC_NAMES:
+                random.choice(job_pools).append(name[:3])
+            if all(job_pools):
+                break
+
+        prereqqed = {'squ': 0}
+        salt = self.get(0).signature
+        while True:
+            if not jp_values:
+                break
+
+            candidates = ([name[:3] for name in JobObject.GENERIC_NAMES
+                           if name[:3] not in prereqqed])
+            if len(prereqqed) == 1:
+                squ_pool = [p for p in job_pools if 'squ' in p][0]
+                candidates = [c for c in candidates if c not in squ_pool]
+            next_name = random.choice(candidates)
+            jro = self.get_by_name(next_name)
+            jro.clear_reqs()
+            jp_value = jp_values[0]
+            my_pool = [p for p in job_pools if next_name in p][0]
+            reqqed = dict(prereqqed)
+            for _ in range(1000):
+                candidates = sorted(
+                    reqqed, key=lambda k: (reqqed[k],
+                                           hashstring('%s%s' % (k, salt))))
+                candidates = [c for c in candidates
+                              if c not in self.BANNED_REQS]
+                if random.random() > max(self.random_degree ** 2.5, 0.01):
+                    temp = [c for c in candidates if c in my_pool]
+                    if temp:
+                        candidates = temp
+
+                max_index = len(candidates)-1
+                index = int(round(
+                    (random.random() ** (self.random_degree ** 0.5))
+                    * max_index))
+                index = max_index - index
+                chosen = candidates[index]
+                jro.increment_req(chosen)
+                reqqed[chosen] += 1
+                simpreqs = jro.get_simplified_reqs()
+                for key, value in sorted(simpreqs.items()):
+                    if key != 'squ' and value == 1:
+                        jro.increment_req(key)
+                if jro.get_jp_total() >= jp_value:
+                    break
+            else:
+                continue
+
+            if jro.name == 'cal':
+                reqs = jro.get_recursive_reqs()
+                if not any([reqs[job_prefix] > 0
+                            for job_prefix in self.CALC_REQS]):
+                    continue
+
+            prereqqed = reqqed
+            assert next_name not in prereqqed
+            prereqqed[next_name] = 0
+            jp_values = jp_values[1:]
+
+        super().randomize_all()
+
+    def cleanup(self):
+        assert self.get_recursive_reqs()[self.name] == 0
+        for name in JobObject.GENERIC_NAMES:
+            assert 0 <= self.get_req(name[:3]) <= 8
+        if self.name == 'cal':
+            reqs = self.get_recursive_reqs()
+            assert any([reqs[job_prefix] > 0
+                        for job_prefix in self.CALC_REQS])
+        for job_prefix in self.BANNED_REQS:
+            assert job_prefix not in self.get_simplified_reqs()
+
+
 class JobJPReqObject(TableObject): pass
 
 
@@ -1121,8 +1398,6 @@ class EncounterObject(TableObject):
             if u.get_bit('randomly_present') or u.get_bit('always_present'):
                 u.find_appropriate_position()
 
-        print('ENTD {0:0>3X}'.format(self.entd))
-
     def randomize(self):
         if self.old_data['entd'] == 0:
             return
@@ -1324,8 +1599,7 @@ class GNSObject(MapMixin):
         heatmap = self.generate_occupied_heatmap(attribute)
         def sortfunc(x_y):
             x, y = x_y
-            sig = '%s%s%s' % (x, y, self.signature)
-            sig = md5(sig.encode('ascii')).hexdigest()
+            sig = hashstring('%s%s%s' % (x, y, self.signature))
             uncenteredness = max(abs(x-avg_x), abs(y-avg_y)) / 100
             score = heatmap[y][x] - uncenteredness
             return score, sig
@@ -1346,8 +1620,7 @@ class GNSObject(MapMixin):
             x, y = x_y
             if (x, y) in enemy_tiles:
                 raise Exception('There should not be an enemy here.')
-            sig = '%s%s%s' % (x, y, self.signature)
-            sig = md5(sig.encode('ascii')).hexdigest()
+            sig = hashstring('%s%s%s' % (x, y, self.signature))
             partyval = 1 + partymap[y][x]
             enemyval = 1 + enemymap[y][x]
             distances = []
