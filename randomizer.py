@@ -1298,6 +1298,9 @@ class FormationObject(TableObject):
 
 
 class EncounterObject(TableObject):
+    ENABLE_RECKLESS_REPLACEMENT = True
+
+    NO_REPLACE = {0x184, 0x185, 0x1c2}
     MAP_MOVEMENTS_FILENAME = path.join(tblpath, 'map_movements.txt')
     map_movements = defaultdict(list)
     for line in open(MAP_MOVEMENTS_FILENAME):
@@ -1308,9 +1311,21 @@ class EncounterObject(TableObject):
         x, y = int(x), int(y)
         map_movements[map_index].append((unit, x, y))
 
+    REPLACING_MAPS = [
+        1, 4, 8, 9, 11, 14, 15, 18, 20, 21, 23, 24, 26, 37, 38,
+        41, 43, 46, 48, 51, 53, 62, 65, 68, 71, 72, 73, 75,
+        76, 92, 93, 94, 95, 96, 97, 98, 99, 100, 101, 102, 104,
+        115, 116, 117, 118, 119, 125]
+    DONE_MAPS = set()
+    REPLACED_MAPS = set()
+
     @classproperty
     def after_order(self):
         return [GNSObject]
+
+    @classproperty
+    def randomize_order(self):
+        return sorted(self.every, key=lambda e: (e.signature, e.index))
 
     @cached_property
     def canonical_relative(self):
@@ -1319,6 +1334,21 @@ class EncounterObject(TableObject):
         for e in EncounterObject.every:
             if e.old_data['entd'] == self.old_data['entd']:
                 return e
+
+    @property
+    def name(self):
+        return 'ENC {0:0>3X} ENTD {1:0>3X} MAP {0:0>3}'.format(
+            self.index, self.entd, self.old_data['map_index'])
+
+    @property
+    def is_replaceable(self):
+        if self.entd in self.NO_REPLACE:
+            return False
+        if self.ENABLE_RECKLESS_REPLACEMENT:
+            return (self.num_characters
+                        and not hasattr(self.map, '_loaded_from'))
+        return (self.num_characters and not self.movements
+                    and not hasattr(self.map, '_loaded_from'))
 
     @property
     def is_canonical(self):
@@ -1334,7 +1364,8 @@ class EncounterObject(TableObject):
 
     @property
     def movements(self):
-        return self.map_movements[self.map_index]
+        return {u: (x, y) for (u, x, y) in
+                self.map_movements[self.old_data['map_index']]}
 
     @property
     def formations(self):
@@ -1345,14 +1376,23 @@ class EncounterObject(TableObject):
         return [FormationObject.get(f) for f in
                 self.old_data['formation_indexes'] if f]
 
+    @property
+    def num_characters(self):
+        return sum([f.num_characters for f in self.old_formations])
+
     def set_formations(self, f1, f2=0):
         f1 = f1.index
         f2 = f2.index if f2 else f2
         self.formation_indexes = [f1, f2]
 
     def set_occupied(self):
-        for u, x, y in self.movements:
+        for u, (x, y) in self.movements.items():
             self.map.set_occupied(x, y)
+        if self.movements and not self.ENABLE_RECKLESS_REPLACEMENT:
+            for u in self.units:
+                if u.unit_id in self.movements:
+                    self.map.set_occupied(u.old_data['x'], u.old_data['y'])
+                    continue
 
     def preprocess(self):
         self.set_occupied()
@@ -1360,25 +1400,42 @@ class EncounterObject(TableObject):
             self.formation_indexes = [323, 324]
             self.old_data['formation_indexes'] = self.formation_indexes
 
+    def replace_map(self):
+        if not self.is_replaceable:
+            return
+
+        if random.random() > self.random_degree ** 0.25:
+            return
+
+        candidates = [map_index for map_index in self.REPLACING_MAPS
+                      if map_index not in self.DONE_MAPS]
+        if not candidates:
+            candidates = [map_index for map_index in sorted(self.REPLACED_MAPS)
+                          if map_index not in self.DONE_MAPS]
+
+        chosen = random.choice(candidates)
+        self.map_index = chosen
+        self.DONE_MAPS.add(chosen)
+        self.REPLACED_MAPS.add(self.old_data['map_index'])
+
     def generate_formations(self):
         # two cases: enemy locations randomized & not
         # problem: duplicate encounter objects / canonical
         templates = [e for e in EncounterObject.every if e.formations]
         template = random.choice(templates)
         num_formations = len(template.old_formations)
-        num_characters = sum([f.num_characters for f in self.old_formations])
-        if num_characters == 0:
+        if self.num_characters == 0:
             return
         assert 1 <= num_formations <= 2
         if num_formations == 2:
             numchars = [f.num_characters for f in template.old_formations]
             random.shuffle(numchars)
             ratio = numchars[0] / sum(numchars)
-            n1 = int(round(num_characters * ratio))
-            n2 = num_characters - n1
-            assert 1 <= n1 < num_characters
-            assert 1 <= n2 < num_characters
-            assert n1 + n2 == num_characters
+            n1 = int(round(self.num_characters * ratio))
+            n2 = self.num_characters - n1
+            assert 1 <= n1 < self.num_characters
+            assert 1 <= n2 < self.num_characters
+            assert n1 + n2 == self.num_characters
             f1 = FormationObject.get_unused()
             f1.generate(self.map_index, n1)
             f2 = FormationObject.get_unused()
@@ -1386,13 +1443,16 @@ class EncounterObject(TableObject):
             self.set_formations(f1, f2)
         else:
             f = FormationObject.get_unused()
-            f.generate(self.map_index, num_characters)
+            f.generate(self.map_index, self.num_characters)
             self.set_formations(f)
 
         # do this after creating new units?
         units = list(self.units)
         random.shuffle(units)
         for u in units:
+            if (u.unit_id in self.movements
+                    and not self.ENABLE_RECKLESS_REPLACEMENT):
+                continue
             if u.get_bit('randomly_present') or u.get_bit('always_present'):
                 u.find_appropriate_position()
 
@@ -1400,6 +1460,8 @@ class EncounterObject(TableObject):
         if self.old_data['entd'] == 0:
             return
         if self.is_canonical:
+            self.replace_map()
+            self.reseed('formations')
             self.generate_formations()
 
     def cleanup(self):
@@ -1820,11 +1882,16 @@ class UnitObject(TableObject):
         return False
 
     @property
+    def encounter(self):
+        encounters = [e for e in EncounterObject.every if e.entd == self.entd
+                      and e.is_canonical]
+        if len(encounters) == 1:
+            return encounters[0]
+
+    @property
     def map(self):
-        indexes = {e.map_index for e in EncounterObject.every
-                   if e.entd == self.entd}
-        if len(indexes) == 1:
-            return GNSObject.get(list(indexes)[0])
+        if self.encounter:
+            return self.encounter.map
 
     @property
     def old_map(self):
@@ -1913,7 +1980,8 @@ class UnitObject(TableObject):
                 if badness is not False:
                     assert (self.x == self.old_data['x'] and
                             self.y == self.old_data['y'] and
-                            self.map == self.old_map and False in badness)
+                            self.map == self.old_map and False in badness
+                            and not hasattr(self.map, '_loaded_from'))
             except AssertionError:
                 self.relocate_nearest_good_tile()
                 self.preclean()
