@@ -26,4 +26,4 @@ resist_elem,1
 weak_elem,1
 monster_portrait,1
 monster_palette,1
-monster_graphic,1
+monster_sprite,1

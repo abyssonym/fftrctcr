@@ -8,7 +8,7 @@ brave,1
 faith,1
 unlocked,1
 unlocked_level,1
-job,1
+job_index,1
 secondary,1
 reaction,2
 support,2

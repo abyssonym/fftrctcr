@@ -3,7 +3,7 @@ map_index,1
 weather,1
 night,1
 music,2,list
-entd,2
+entd_index,2
 formation_indexes,2x2,list
 unknown0,4
 ramza,1

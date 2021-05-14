@@ -45,7 +45,28 @@ class MutateBoostMixin(TableObject):
                     setattr(self, attr, value)
 
 
-class AbilityObject(TableObject): pass
+class AbilityObject(TableObject):
+    TELEPORT2 = 0x1f3
+
+    @property
+    def ability_type(self):
+        return self.misc_type & 0xF
+
+    @property
+    def is_reaction(self):
+        return self.ability_type == 7
+
+    @property
+    def is_support(self):
+        return self.ability_type == 8
+
+    @property
+    def is_movement(self):
+        return self.ability_type == 9
+
+    def cleanup(self):
+        if self.index == self.TELEPORT2:
+            self.jp_cost = 9999
 
 
 class AbilityAttributesObject(MutateBoostMixin):
@@ -127,6 +148,8 @@ class JobObject(TableObject):
         "timemage", "summoner", "thief", "mediator", "oracle", "geomancer",
         "lancer", "samurai", "ninja", "calculator", "bard", "dancer", "mime",
         ]
+    SQUIRE_INDEX = 0x4a
+    MIME_INDEX = 0x5d
 
     VALID_INNATE_STATUSES = 0xcafce12a10
     VALID_START_STATUSES = (VALID_INNATE_STATUSES |
@@ -159,6 +182,8 @@ class JobObject(TableObject):
     GROUP_MONSTER = 3
     GROUP_SPECIAL = 4
 
+    RANK_OVERRIDES = {0x7b: 99999}
+
     randomselect_attributes = [
         ('hpgrowth', 'hpmult'),
         ('mpgrowth', 'mpmult'),
@@ -190,10 +215,10 @@ class JobObject(TableObject):
 
         character_jobs = defaultdict(set)
         for u in UnitObject.every:
-            if u.entd >= 0x1db:
+            if u.entd_index >= 0x1db:
                 continue
-            if 'NO-NAME' not in u.character_name:
-                character_jobs[u.character_name].add(u.old_data['job'])
+            if u.has_unique_name:
+                character_jobs[u.character_name].add(u.old_data['job_index'])
 
         JobObject._character_jobs = {}
         for name in character_jobs:
@@ -226,6 +251,9 @@ class JobObject(TableObject):
     def canonical_relative(self):
         if self.character_name in ['NONE', 'RANDOM GENERIC']:
             return self
+        temp = [r for r in self.relatives if not r.is_zero_growth_job]
+        if temp:
+            return temp[0]
         return self.relatives[0]
 
     @property
@@ -234,11 +262,11 @@ class JobObject(TableObject):
 
     @property
     def is_generic(self):
-        return 0x4a <= self.index <= 0x5d
+        return JobObject.SQUIRE_INDEX <= self.index <= JobObject.MIME_INDEX
 
     @property
     def is_monster(self):
-        return self.index >= 0x5e and self.index != 0x97
+        return self.index >= 0x5e and not self.is_lucavi
 
     @property
     def is_lucavi(self):
@@ -246,63 +274,92 @@ class JobObject(TableObject):
 
     @property
     def is_special(self):
-        return 1 <= self.index <= 0x49 or self.index == 0x97
+        return self.is_lucavi or not (self.is_generic or self.is_monster)
+
+    @property
+    def is_recruitable(self):
+        return self.is_generic or (self.is_canonical and self.character_name in
+                                   self.STORYLINE_RECRUITABLE_NAMES)
 
     @property
     def intershuffle_group(self):
-        if self.is_generic or (self.is_canonical and self.character_name in
-                               self.STORYLINE_RECRUITABLE_NAMES):
+        if not self.intershuffle_valid:
+            return -1
+        if self.is_recruitable:
             return self.GROUP_RECRUITABLE
         if self.is_lucavi:
             return self.GROUP_LUCAVI
         if self.is_monster:
             return self.GROUP_MONSTER
-        if self.intershuffle_valid:
-            return self.GROUP_SPECIAL
-        return -1
+        return self.GROUP_SPECIAL
+
+    @cached_property
+    def is_zero_growth_job(self):
+        for attr in self.mutate_attributes:
+            if attr.endswith('growth') and self.old_data[attr] == 0:
+                return True
+        return False
 
     @property
     def intershuffle_valid(self):
-        for attr in self.mutate_attributes:
-            if self.old_data[attr] == 0:
-                return False
-        return True
+        if self.rank < 0:
+            return False
+        return not self.is_zero_growth_job
+
+    @cached_property
+    def avg_entd_level(self):
+        levels = [e.avg_level for e in ENTDObject.every
+                  if e.is_valid and self in e.old_jobs]
+        levels = [l for l in levels if l is not None]
+        if not levels:
+            return -1
+        lowest = min(levels)
+        avg = sum(levels) / len(levels)
+        return ((2*lowest) + avg) / 3
 
     @property
     def rank(self):
-        if self.intershuffle_group == self.GROUP_RECRUITABLE:
-            return 1
+        if self.index in self.RANK_OVERRIDES:
+            return self.RANK_OVERRIDES[self.index]
 
-        if self.intershuffle_group == self.GROUP_LUCAVI:
+        if self.is_recruitable:
             return 1
 
         if hasattr(self, '_rank'):
             return self._rank
 
-        rank_attrs = set()
-        for attr in self.mutate_attributes:
-            rank_attr = '_%s_rank' % attr
-            rank_attrs.add(rank_attr)
-            reverse = attr.endswith('growth')
-            ranked = sorted(
-                JobObject.every, key=lambda j: (j.old_data[attr],
-                                                j.signature,
-                                                j.index), reverse=reverse)
-            max_index = len(ranked)-1
-            for i, j in enumerate(ranked):
-                setattr(j, rank_attr, i / max_index)
+        for j in JobObject.every:
+            j._rank = j.avg_entd_level
+
+        seen_together = defaultdict(set)
+        for e in ENTDObject.every:
+            if not e.is_valid:
+                continue
+            for j in e.old_jobs:
+                seen_together[j] |= set(e.old_jobs)
 
         for j in JobObject.every:
-            ranks = [getattr(j, attr) for attr in sorted(rank_attrs)]
-            ranks.append(1 if j.is_lucavi else 0)
-            j._rank = sum(ranks) / len(ranks)
+            if j._rank < 0:
+                ranks = [j2._rank for j2 in seen_together[j] if j2._rank >= 0]
+                if ranks:
+                    j._rank = sum(ranks) / len(ranks)
+
+        for group in [self.GROUP_RECRUITABLE, self.GROUP_LUCAVI,
+                      self.GROUP_MONSTER, self.GROUP_SPECIAL]:
+            ranked = [j for j in JobObject.every if j._rank >=0 and
+                      j.intershuffle_group == group]
+            ranked = sorted(ranked,
+                            key=lambda j: (j._rank, j.signature, j.index))
+            for i, j in enumerate(ranked):
+                j._rank = i + 1
 
         return self.rank
 
     @property
     def name(self):
         if self.is_generic:
-            return self.GENERIC_NAMES[self.index-0x4a].upper()
+            return self.GENERIC_NAMES[
+                self.index-JobObject.SQUIRE_INDEX].upper()
         else:
             return 'JOB {0:0>2X}'.format(self.index)
 
@@ -313,7 +370,6 @@ class JobObject(TableObject):
         for attr in self.old_data:
             if attr.endswith('growth') and self.old_data[attr] == 0:
                 setattr(self, attr, 0xff)
-                self.old_data[attr] = 0xff
 
     def preclean(self):
         if len(self.relatives) > 1:
@@ -883,6 +939,16 @@ class JobReqObject(TableObject):
             return jros[0]
 
     @property
+    def job_index(self):
+        return self.index + JobObject.SQUIRE_INDEX + 1
+
+    @classmethod
+    def get_by_job_index(self, job_index):
+        jros = [j for j in JobReqObject.every if j.job_index == job_index]
+        if len(jros) == 1:
+            return jros[0]
+
+    @property
     def name(self):
         return JobObject.GENERIC_NAMES[self.index+1][:3]
 
@@ -1185,8 +1251,9 @@ class FormationObject(TableObject):
         return [e for e in EncounterObject.every if self in e.formations]
 
     @property
-    def entd(self):
-        entds = {e.entd for e in EncounterObject.every if self in e.formations}
+    def entd_index(self):
+        entds = {e.entd_index for e in EncounterObject.every
+                 if self in e.formations}
         assert len(entds) <= 1
         if entds:
             return list(entds)[0]
@@ -1287,7 +1354,7 @@ class FormationObject(TableObject):
 
     def preprocess(self):
         if (self.index == 0xe8 and self.map_index == 0x74
-                and self.entd == 0x1cc):
+                and self.entd_index == 0x1cc):
             assert all(e.map_index == 0x32 for e in self.encounters)
             self.map_index = 0x32
             self.old_data['map_index'] = 0x32
@@ -1321,7 +1388,7 @@ class EncounterObject(TableObject):
 
     @classproperty
     def after_order(self):
-        return [GNSObject]
+        return [GNSObject, UnitObject]
 
     @classproperty
     def randomize_order(self):
@@ -1329,20 +1396,20 @@ class EncounterObject(TableObject):
 
     @cached_property
     def canonical_relative(self):
-        if self.old_data['entd'] == 0:
+        if self.old_data['entd_index'] == 0:
             return self
         for e in EncounterObject.every:
-            if e.old_data['entd'] == self.old_data['entd']:
+            if e.old_data['entd_index'] == self.old_data['entd_index']:
                 return e
 
     @property
     def name(self):
         return 'ENC {0:0>3X} ENTD {1:0>3X} MAP {0:0>3}'.format(
-            self.index, self.entd, self.old_data['map_index'])
+            self.index, self.entd_index, self.old_data['map_index'])
 
     @property
     def is_replaceable(self):
-        if self.entd in self.NO_REPLACE:
+        if self.entd_index in self.NO_REPLACE:
             return False
         if self.ENABLE_RECKLESS_REPLACEMENT:
             return (self.num_characters
@@ -1353,10 +1420,6 @@ class EncounterObject(TableObject):
     @property
     def is_canonical(self):
         return self.canonical_relative is self
-
-    @property
-    def units(self):
-        return [u for u in UnitObject.every if u.entd == self.entd]
 
     @property
     def map(self):
@@ -1380,6 +1443,14 @@ class EncounterObject(TableObject):
     def num_characters(self):
         return sum([f.num_characters for f in self.old_formations])
 
+    @property
+    def entd(self):
+        return ENTDObject.get(self.entd_index)
+
+    @property
+    def units(self):
+        return self.entd.units
+
     def set_formations(self, f1, f2=0):
         f1 = f1.index
         f2 = f2.index if f2 else f2
@@ -1388,6 +1459,11 @@ class EncounterObject(TableObject):
     def set_occupied(self):
         for u, (x, y) in self.movements.items():
             self.map.set_occupied(x, y)
+        for u in self.units:
+            if u.has_unique_name and (u.is_present_old or
+                                      u.unit_id in self.movements):
+                self.map.set_occupied(u.old_data['x'], u.old_data['y'])
+                continue
         if self.movements and not self.ENABLE_RECKLESS_REPLACEMENT:
             for u in self.units:
                 if u.unit_id in self.movements:
@@ -1419,8 +1495,6 @@ class EncounterObject(TableObject):
         self.REPLACED_MAPS.add(self.old_data['map_index'])
 
     def generate_formations(self):
-        # two cases: enemy locations randomized & not
-        # problem: duplicate encounter objects / canonical
         templates = [e for e in EncounterObject.every if e.formations]
         template = random.choice(templates)
         num_formations = len(template.old_formations)
@@ -1453,11 +1527,11 @@ class EncounterObject(TableObject):
             if (u.unit_id in self.movements
                     and not self.ENABLE_RECKLESS_REPLACEMENT):
                 continue
-            if u.get_bit('randomly_present') or u.get_bit('always_present'):
+            if u.is_present:
                 u.find_appropriate_position()
 
     def randomize(self):
-        if self.old_data['entd'] == 0:
+        if self.old_data['entd_index'] == 0:
             return
         if self.is_canonical:
             self.replace_map()
@@ -1471,6 +1545,10 @@ class EncounterObject(TableObject):
 
         for f in self.formations:
             assert f.map_index == self.map_index
+
+        old_spritecount = len(self.entd.old_sprites) + self.num_characters
+        new_spritecount = len(self.entd.sprites) + self.num_characters
+        assert new_spritecount <= max(old_spritecount, 9)
 
 
 class MapMixin(TableObject):
@@ -1620,6 +1698,19 @@ class GNSObject(MapMixin):
                 t.occupied = True
             except IndexError:
                 pass
+
+    def get_occupied(self, x, y):
+        for m in self.primary_meshes:
+            try:
+                t = m.get_tile(x, y)
+                if t.occupied:
+                    return True
+                t = m.get_tile(x, y, upper=True)
+                if t.occupied:
+                    return True
+            except IndexError:
+                pass
+        return False
 
     def set_party(self, x, y):
         self.set_occupied(x, y)
@@ -1835,23 +1926,26 @@ class UnitObject(TableObject):
     USED_MAPS = lange(0, 0x14b) + lange(0x180, 0x1d6)
     FIXED_WEATHER = [0x19f, 0x1b5, 0x1c2]
 
+    MONSTER_GRAPHIC = 0x82
+    MALE_GRAPHIC = 0x80
+    FEMALE_GRAPHIC = 0x81
+    GENERIC_GRAPHICS = (MALE_GRAPHIC, FEMALE_GRAPHIC)
+
+    @classproperty
+    def after_order(self):
+        return [ENTDObject]
+
     @property
-    def entd(self):
+    def entd_index(self):
         return self.index >> 4
 
     @property
+    def entd(self):
+        return ENTDObject.get(self.entd_index)
+
+    @property
     def neighbors(self):
-        if hasattr(self, '_neighbors'):
-            return self._neighbors
-
-        neighbors_dict = defaultdict(list)
-        for u in UnitObject.every:
-            neighbors_dict[u.entd].append(u)
-
-        for u in UnitObject.every:
-            u._neighbors = neighbors_dict[u.entd]
-
-        return self.neighbors
+        return self.entd.units
 
     @property
     def character_name(self):
@@ -1862,6 +1956,122 @@ class UnitObject(TableObject):
         return name
 
     @property
+    def has_unique_name(self):
+        if 'NO-NAME' in self.character_name:
+            return False
+        if self.character_name == 'RANDOM GENERIC':
+            return False
+        return bool(self.character_name.strip())
+
+    @property
+    def has_generic_sprite(self):
+        if self.graphic == self.MONSTER_GRAPHIC:
+            return JobObject.get(self.job_index).is_monster
+        if self.graphic in self.GENERIC_GRAPHICS:
+            return JobObject.get(self.job_index).is_generic
+        return False
+
+    @property
+    def has_generic_sprite_old(self):
+        if self.old_data['graphic'] == self.MONSTER_GRAPHIC:
+            return JobObject.get(self.old_data['job_index']).is_monster
+        if self.old_data['graphic'] in self.GENERIC_GRAPHICS:
+            return JobObject.get(self.old_data['job_index']).is_generic
+        return False
+
+    @property
+    def sprite_id(self):
+        if self.graphic == self.MONSTER_GRAPHIC:
+            job_sprite = self.job.monster_portrait
+        elif self.graphic in self.GENERIC_GRAPHICS:
+            job_sprite = self.job_index
+        else:
+            job_sprite = None
+        return self.graphic, job_sprite
+
+    @property
+    def old_sprite_id(self):
+        if self.old_data['graphic'] == self.MONSTER_GRAPHIC:
+            job_sprite = self.old_job.old_data['monster_portrait']
+            if job_sprite == 0:
+                job_sprite = self.old_data['job_index']
+        elif self.old_data['graphic'] in self.GENERIC_GRAPHICS:
+            job_sprite = self.old_data['job_index']
+        else:
+            job_sprite = None
+        return self.old_data['graphic'], job_sprite
+
+    def get_similar_sprite(self, exclude_sprites=None, random_degree=None):
+        if exclude_sprites is None:
+            exclude_sprites = set()
+        if random_degree is None:
+            random_degree = UnitObject.random_degree
+        exclude_sprites = {
+            (self.MALE_GRAPHIC if g == self.FEMALE_GRAPHIC else g, j)
+            for (g, j) in exclude_sprites}
+        graphic, job_sprite = self.old_sprite_id
+        if graphic == UnitObject.MONSTER_GRAPHIC:
+            candidates = [
+                j for j in JobObject.every
+                if j.intershuffle_group == JobObject.GROUP_MONSTER
+                and (graphic, j.monster_portrait) not in exclude_sprites]
+            new_monster = self.old_job.get_similar(
+                candidates=candidates, override_outsider=True, wide=True,
+                random_degree=random_degree)
+            new_sprite = graphic, new_monster.monster_portrait
+            assert new_sprite not in exclude_sprites
+            return new_sprite
+
+        elif graphic in UnitObject.GENERIC_GRAPHICS:
+            jro_jps = {jro.job_index: jro.get_jp_total()
+                       for jro in JobReqObject.every}
+            max_jp = max(jro_jps.values())
+
+            if job_sprite == JobObject.SQUIRE_INDEX:
+                jp = 0
+            else:
+                jro = JobReqObject.get_by_job_index(job_sprite)
+                jp = jro.get_jp_total(old=True)
+                jp = mutate_normal(jp, 0, max_jp,
+                                   random_degree=random_degree)
+                jp = round(jp * 2, -2) // 2
+            candidates = sorted(
+                jro_jps, key=lambda jro_index: (
+                    jro_jps[jro_index],
+                    JobReqObject.get_by_job_index(jro_index).signature,
+                    jro_index))
+            candidates = [
+                c for c in candidates
+                if (self.MALE_GRAPHIC, c) not in exclude_sprites]
+            chosen = [c for c in candidates if jro_jps[c] >= jp][0]
+            index = candidates.index(chosen)
+            squire = (UnitObject.MALE_GRAPHIC, JobObject.SQUIRE_INDEX)
+            if (index == 0 and squire not in exclude_sprites
+                    and random.choice([True, False])):
+                chosen = JobObject.SQUIRE_INDEX
+            else:
+                max_index = len(candidates)-1
+                index = mutate_normal(
+                    index, 0, max_index,
+                    random_degree=random_degree)
+                chosen = candidates[index]
+            assert JobObject.SQUIRE_INDEX <= chosen <= JobObject.MIME_INDEX
+            gender = random.choice(UnitObject.GENERIC_GRAPHICS)
+            return gender, chosen
+
+    @property
+    def job(self):
+        return JobObject.get(self.job_index)
+
+    @property
+    def old_job(self):
+        return JobObject.get(self.old_data['job_index'])
+
+    @property
+    def is_monster(self):
+        return self.job.is_monster
+
+    @property
     def is_ally(self):
         return not (
             self.get_bit('enemy_team') or self.get_bit('alternate_team'))
@@ -1869,21 +2079,26 @@ class UnitObject(TableObject):
     @property
     def is_present(self):
         return (
-            self.get_bit('randomly_present') or self.get_bit('always_present'))
+            self.get_bit('randomly_present') or self.get_bit('always_present')
+            or self.unit_id != 0xff)
 
     @property
-    def is_unimportant(self):
-        if not self.is_present:
+    def is_present_old(self):
+        return (
+            self.get_bit('randomly_present', old=True)
+            or self.get_bit('always_present', old=True)
+            or self.old_data['unit_id'] != 0xff)
+
+    @property
+    def is_important(self):
+        if self.has_unique_name:
             return True
-        if self.character_name == 'RANDOM GENERIC':
-            return True
-        if 'NO-NAME' in self.character_name:
-            return True
-        return False
+        return self.entd.is_valid and self.is_present and self.unit_id != 0xff
 
     @property
     def encounter(self):
-        encounters = [e for e in EncounterObject.every if e.entd == self.entd
+        encounters = [e for e in EncounterObject.every
+                      if e.entd_index == self.entd_index
                       and e.is_canonical]
         if len(encounters) == 1:
             return encounters[0]
@@ -1896,7 +2111,7 @@ class UnitObject(TableObject):
     @property
     def old_map(self):
         indexes = {e.old_data['map_index'] for e in EncounterObject.every
-                   if e.old_data['entd'] == self.entd}
+                   if e.old_data['entd_index'] == self.entd_index}
         if len(indexes) == 1:
             return GNSObject.get(list(indexes)[0])
 
@@ -1926,6 +2141,7 @@ class UnitObject(TableObject):
             self.facing &= 0x7f
 
     def relocate(self, x, y):
+        assert not self.map.get_occupied(x, y)
         if self.is_ally:
             self.map.set_party(x, y)
         else:
@@ -1967,12 +2183,82 @@ class UnitObject(TableObject):
             raise Exception('No good tiles.')
 
     def preprocess(self):
-        if self.index == 0x153d and self.is_unimportant:
+        if self.index == 0x153d and not self.is_important:
             self.set_bit('always_present', False)
             self.old_data['misc2'] = self.misc2
 
+    def clear_gender(self):
+        self.set_bit('female', False)
+        self.set_bit('male', False)
+        self.set_bit('monster', False)
+
+    def get_gender(self):
+        genders = [gender for gender in ['male', 'female', 'monster']
+                   if self.get_bit(gender)]
+        if len(genders) == 1:
+            return genders[0]
+
+    def randomize_job(self):
+        if hasattr(self, '_target_sprite'):
+            graphic, job_index, gender = self._target_sprite
+            self.graphic = graphic
+            self.job_index = job_index
+            if gender is not None:
+                self.clear_gender()
+                self.set_bit(gender, True)
+            return
+
+        if not self.has_generic_sprite:
+            if self.job.is_generic and self.graphic > 0:
+                # pretty much just Algus
+                candidates = [u for u in UnitObject.every if u.entd.is_valid
+                              and u.is_present]
+                chosen = random.choice(candidates)
+                self.job_index = chosen.old_data['job_index']
+            return
+
+        neighbors = [u for u in self.neighbors
+                     if u.is_present_old and u.has_generic_sprite_old]
+
+        while True:
+            template = random.choice(neighbors)
+            tg, tj = template.old_sprite_id
+            candidates = [
+                (g, j) for (g, j) in self.entd.available_sprites
+                if (g == self.MONSTER_GRAPHIC) == (tg == self.MONSTER_GRAPHIC)]
+            if candidates:
+                break
+
+        if tg != self.MONSTER_GRAPHIC:
+            self.graphic, self.job_index = random.choice(candidates)
+            self.clear_gender()
+            if self.graphic == self.MALE_GRAPHIC:
+                self.set_bit('male', True)
+            elif self.graphic == self.FEMALE_GRAPHIC:
+                self.set_bit('female', True)
+            else:
+                import pdb; pdb.set_trace()
+                raise NotImplementedError
+        elif tg == self.MONSTER_GRAPHIC:
+            mgraphics = [j for (g, j) in self.entd.available_sprites
+                         if g == self.MONSTER_GRAPHIC]
+            candidates = [j for j in JobObject.every
+                          if j.is_monster and j.monster_portrait in mgraphics
+                          and j.intershuffle_valid]
+            similar = template.old_job.get_similar(
+                candidates=candidates, random_degree=self.random_degree,
+                override_outsider=True, wide=True)
+            self.graphic = self.MONSTER_GRAPHIC
+            self.job_index = similar.index
+            self.clear_gender()
+            self.set_bit('monster', True)
+
+    def randomize(self):
+        super().randomize()
+        self.randomize_job()
+
     def preclean(self):
-        if self.is_present and self.map is not None:
+        if self.is_important and self.map is not None:
             badness = self.map.get_tile_attribute(
                 self.x, self.y, 'bad_regardless', upper=self.is_upper)
             try:
@@ -1990,8 +2276,119 @@ class UnitObject(TableObject):
         if self.get_bit('always_present'):
             for u in self.neighbors:
                 if u.get_bit('always_present') and u is not self:
-                    assert (u.x, u.y) != (self.x, self.y) or (
-                        u.is_unimportant and self.is_unimportant)
+                    assert (u.x, u.y) != (self.x, self.y) or not (
+                        u.is_important or self.is_important)
+
+        if self.is_important and self.encounter is not None:
+            assert 0 <= self.x < self.map.width
+            assert 0 <= self.y < self.map.length
+
+
+class ENTDObject(TableObject):
+    VALID_INDEXES = (
+        lange(1, 9) + lange(0xd, 0x21) + lange(0x25, 0x2d) +
+        lange(0x31, 0x45) + lange(0x49, 0x51) + lange(0x52, 0xfd) +
+        lange(0x180, 0x1d6))
+    NAMED_GENERICS = {}
+
+    @classproperty
+    def after_order(self):
+        return [JobReqObject]
+
+    @cached_property
+    def units(self):
+        return [u for u in UnitObject.every if u.entd_index == self.index]
+
+    @cached_property
+    def avg_level(self):
+        levels = [u.old_data['level'] for u in self.units
+                  if u.is_present_old and 1 <= u.old_data['level'] <= 99
+                  and not u.is_ally]
+        if not levels:
+            return None
+        highest = max(levels)
+        avg = sum(levels) / len(levels)
+        return ((2*highest) + avg) / 3
+
+    @property
+    def old_jobs(self):
+        return [JobObject.get(u.old_data['job_index']) for u in self.units
+                if u.is_present_old]
+
+    @property
+    def is_valid(self):
+        return self.index in self.VALID_INDEXES
+
+    @property
+    def present_units(self):
+        return [u for u in self.units if u.is_present]
+
+    @property
+    def sprites(self):
+        return {u.sprite_id for u in self.present_units}
+
+    @property
+    def old_sprites(self):
+        return {u.old_sprite_id for u in self.units if u.is_present_old}
+
+    def randomize_sprites(self):
+        special_units = [u for u in self.present_units
+                         if not u.has_generic_sprite]
+        named_generics = [u for u in self.present_units
+                          if u.has_unique_name and u.has_generic_sprite]
+        generic_units = [u for u in self.present_units
+                         if u.has_generic_sprite and not u.has_unique_name]
+
+        new_sprites = {u.old_sprite_id for u in special_units}
+        available_sprites = set()
+        temp_named = {}
+        for u in named_generics:
+            assert not hasattr(u, '_target_sprite')
+            key = (u.character_name, u.old_sprite_id)
+            if u.old_sprite_id in temp_named:
+                new_sprite = temp_named[u.old_sprite_id]
+            elif key in self.NAMED_GENERICS:
+                new_sprite = self.NAMED_GENERICS[key]
+            else:
+                new_sprite = u.get_similar_sprite(exclude_sprites=new_sprites,
+                                                  random_degree=1.0)
+            old_g, old_j = u.old_sprite_id
+            new_g, new_j = new_sprite
+            if new_g == UnitObject.MONSTER_GRAPHIC:
+                candidates = [
+                    j for j in JobObject.every if j.monster_portrait == new_j]
+                chosen = random.choice(candidates)
+                u._target_sprite = (old_g, chosen.index, u.get_gender())
+            else:
+                u._target_sprite = (old_g, new_j, u.get_gender())
+
+            new_sprite = old_g, new_j
+            if u.old_sprite_id not in temp_named:
+                temp_named[u.old_sprite_id] = new_sprite
+            assert temp_named[u.old_sprite_id] == new_sprite
+            if key not in self.NAMED_GENERICS:
+                self.NAMED_GENERICS[key] = new_sprite
+            assert self.NAMED_GENERICS[key] == new_sprite
+            new_sprites.add(new_sprite)
+
+        while len(new_sprites) < len(self.old_sprites):
+            u = random.choice(generic_units)
+            new_sprite = u.get_similar_sprite(exclude_sprites=new_sprites)
+            assert new_sprite not in new_sprites
+            available_sprites.add(new_sprite)
+            new_sprites |= available_sprites
+
+        assert not hasattr(self, 'new_sprites')
+        assert not hasattr(self, 'available_sprites')
+        self.new_sprites = sorted(new_sprites)
+        self.available_sprites = sorted(available_sprites)
+
+    def randomize(self):
+        super().randomize()
+        self.randomize_sprites()
+
+    def cleanup(self):
+        assert len(self.sprites) <= max(len(self.old_sprites), 9)
 
 
 class PropositionObject(TableObject):

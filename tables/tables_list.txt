@@ -23,6 +23,7 @@ GNSObject                   empty.txt                       pointers_gns.txt
 MeshObject                  empty.txt                       pointers_meshes.txt
 TextureObject               empty.txt                       pointers_textures.txt
 UnitObject                  struct_unit.txt                 pointers_units.txt
+ENTDObject                  empty.txt                       0                           512
 PropositionObject           struct_proposition.txt          36380@WORLD/WLDCORE.BIN     96
 #PropositionJPObject         struct_proposition_jp.txt       36db4@WORLD/WLDCORE.BIN     8
 #PropositionGilObject        struct_proposition_gil.txt      36dc4@WORLD/WLDCORE.BIN     8
