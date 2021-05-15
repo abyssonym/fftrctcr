@@ -49,6 +49,11 @@ class AbilityObject(TableObject):
     TELEPORT2 = 0x1f3
 
     @property
+    def rank(self):
+        self.preprocess()
+        return self.old_data['jp_cost']
+
+    @property
     def ability_type(self):
         return self.misc_type & 0xF
 
@@ -64,9 +69,33 @@ class AbilityObject(TableObject):
     def is_movement(self):
         return self.ability_type == 9
 
-    def cleanup(self):
+    @classproperty
+    def reaction_pool(self):
+        if hasattr(self, '_reaction_pool'):
+            return self._reaction_pool
+        self._reaction_pool = [a for a in AbilityObject.ranked
+                               if a.is_reaction]
+        return self.reaction_pool
+
+    @classproperty
+    def support_pool(self):
+        if hasattr(self, '_support_pool'):
+            return self._support_pool
+        self._support_pool = [a for a in AbilityObject.ranked if a.is_support]
+        return self.support_pool
+
+    @classproperty
+    def movement_pool(self):
+        if hasattr(self, '_movement_pool'):
+            return self._movement_pool
+        self._movement_pool = [a for a in AbilityObject.ranked
+                               if a.is_movement]
+        return self.movement_pool
+
+    def preprocess(self):
         if self.index == self.TELEPORT2:
             self.jp_cost = 9999
+            self.old_data['jp_cost'] = self.jp_cost
 
 
 class AbilityAttributesObject(MutateBoostMixin):
@@ -163,7 +192,7 @@ class JobObject(TableObject):
     INNOCENT_STATUS =       0x4000000000
     INVITE_STATUS =         0x0000004000
 
-    BANNED_RSMS = [0x1bb, 0x1d7, 0x1e1, 0x1e4, 0x1e5, 0x1f1]
+    BANNED_RSMS = [0x1bb, 0x1e1, 0x1e4, 0x1e5, 0x1f1]
     MP_RESTORE_INNATES = [0x1ee, 0x1b6, 0x1b0]
     LUCAVI_INNATES = (lange(0x1a6, 0x1a9) + [0x1aa] + lange(0x1ac, 0x1b0)
                       + lange(0x1b1, 0x1b4) + [0x1b5, 0x1ba, 0x1bd, 0x1be]
@@ -247,7 +276,7 @@ class JobObject(TableObject):
             return [self]
         relatives = [j for j in JobObject.every
                      if j.character_name == self.character_name]
-        relatives = sorted(relatives, key=lambda r: (r.signature, r.index))
+        relatives = sorted(relatives, key=lambda r: r.signature)
         return relatives
 
     @cached_property
@@ -321,6 +350,27 @@ class JobObject(TableObject):
         return ((2*lowest) + avg) / 3
 
     @property
+    def skillset(self):
+        return SkillsetObject.get(self.skillset_index)
+
+    @property
+    def rsms(self):
+        return self.skillset.rsms
+
+    @property
+    def jobreq(self):
+        if not self.is_generic:
+            return None
+        if self.index == self.SQUIRE_INDEX:
+            return None
+        return JobReqObject.get_by_name(self.name)
+
+    def get_jp_total(self):
+        if self.jobreq:
+            return self.jobreq.get_jp_total()
+        return 0
+
+    @property
     def rank(self):
         if self.index in self.RANK_OVERRIDES:
             return self.RANK_OVERRIDES[self.index]
@@ -352,7 +402,7 @@ class JobObject(TableObject):
             ranked = [j for j in JobObject.every if j._rank >=0 and
                       j.intershuffle_group == group]
             ranked = sorted(ranked,
-                            key=lambda j: (j._rank, j.signature, j.index))
+                            key=lambda j: (j._rank, j.signature))
             for i, j in enumerate(ranked):
                 j._rank = i + 1
 
@@ -376,6 +426,23 @@ class JobObject(TableObject):
                 self.index-JobObject.SQUIRE_INDEX].upper()
         else:
             return 'JOB {0:0>2X}'.format(self.index)
+
+    @classmethod
+    def get_by_name(self, name):
+        if not hasattr(JobObject, '_by_name_dict'):
+            JobObject._by_name_dict = {}
+        if name in JobObject._by_name_dict:
+            return JobObject._by_name_dict[name]
+
+        jobs = [j for j in JobObject.every
+                if j.name.lower()[:3] == name.lower()[:3]]
+        if len(jobs) == 1:
+            job = jobs[0]
+        else:
+            job = None
+
+        JobObject._by_name_dict[name] = job
+        return JobObject.get_by_name(name)
 
     def can_equip(self, item):
         return self.equips & item.equip_flag
@@ -690,12 +757,13 @@ class SkillsetObject(TableObject):
             skillsets[name] = []
             for j in jobs:
                 try:
-                    ss = SkillsetObject.get(j.skillset)
+                    ss = j.skillset
                     skillsets[name].append(ss)
                 except KeyError:
                     pass
         return skillsets
 
+    @property
     def is_generic(self):
         return 5 <= self.index <= 0x18
 
@@ -715,17 +783,21 @@ class SkillsetObject(TableObject):
         return actions
 
     @property
-    def actions(self):
+    def action_indexes(self):
         return self.get_actions()
 
     @property
-    def old_actions(self):
+    def actions(self):
+        return [AbilityObject.get(i) for i in self.action_indexes if i > 0]
+
+    @property
+    def old_action_indexes(self):
         return self.get_actions(old=True)
 
     def set_actions(self, actions, order_new=False):
         assert 0 not in actions
         actions = sorted(actions)
-        old_actions = [a for a in actions if a in self.old_actions]
+        old_actions = [a for a in actions if a in self.old_action_indexes]
         new_actions = [a for a in actions if a not in old_actions]
         if order_new:
             actions = new_actions + old_actions
@@ -742,13 +814,18 @@ class SkillsetObject(TableObject):
         self.actionbits2 = actionbits & 0xff
 
     @property
-    def rsms(self):
+    def rsm_indexes(self):
         rsms = []
         for i, rsm in enumerate(self.rsmbytes):
             if self.rsmbits & (1 << (0x7-i)):
                 rsm |= 0x100
             rsms.append(rsm)
         return rsms
+
+    @property
+    def rsms(self):
+        return [AbilityObject.get(rsm_index)
+                for rsm_index in self.rsm_indexes if rsm_index > 0]
 
     def set_rsms(self, rsms):
         assert 0 not in rsms
@@ -772,17 +849,17 @@ class SkillsetObject(TableObject):
             actions = set()
             rsm_counts = []
             for ss in skillsets:
-                rsms |= set(ss.rsms)
-                rsm_counts.append(len([rsm for rsm in ss.rsms if rsm]))
-                actions |= set(ss.actions)
+                rsms |= set(ss.rsm_indexes)
+                rsm_counts.append(len([rsm for rsm in ss.rsm_indexes if rsm]))
+                actions |= set(ss.action_indexes)
             rsm_count += max(rsm_counts)
             actions -= {0}
             job_actions[name] = actions
 
         for ss in SkillsetObject.every:
             if ss.is_generic:
-                rsms |= set(ss.rsms)
-                rsm_count += len([rsm for rsm in ss.rsms if rsm])
+                rsms |= set(ss.rsm_indexes)
+                rsm_count += len([rsm for rsm in ss.rsm_indexes if rsm])
 
         shuffled_names = sorted(job_actions)
         random.shuffle(shuffled_names)
@@ -814,7 +891,7 @@ class SkillsetObject(TableObject):
             if key in job_actions:
                 actions = job_actions[key]
             else:
-                actions = SkillsetObject.get(key).actions
+                actions = SkillsetObject.get(key).action_indexes
             actions = [a for a in sorted(actions) if a > 0]
             max_exchange = (
                 len(actions) * (SkillsetObject.random_degree ** 0.5))
@@ -828,7 +905,7 @@ class SkillsetObject(TableObject):
             if base in job_actions:
                 actions = job_actions[base]
             else:
-                actions = SkillsetObject.get(base).actions
+                actions = SkillsetObject.get(base).action_indexes
             actions = [a for a in actions if a not in exchange_skills[base]]
             actions += exchange_skills[inherit]
             actions = [a for a in sorted(set(actions)) if a > 0]
@@ -867,7 +944,7 @@ class SkillsetObject(TableObject):
                 if ss.index in self.BANNED_SKILLSET_SHUFFLE:
                     continue
                 actions = final_actions[name]
-                actions = [a for a in actions if a in ss.old_actions
+                actions = [a for a in actions if a in ss.old_action_indexes
                            or a not in job_actions[name]]
                 ss.set_actions(actions, order_new)
                 ss.set_rsms(final_rsms[name])
@@ -883,15 +960,24 @@ class SkillsetObject(TableObject):
                     ss.set_actions(final_actions[ss.index], order_new)
                 ss.set_rsms(final_rsms[ss.index])
 
+    def skills_are_subset_of(self, other):
+        return (set(self.actions) <= set(other.actions) and
+                set(self.rsms) <= set(other.rsms))
+
     def cleanup(self):
         while len(self.actionbytes) < len(self.old_data['actionbytes']):
             self.actionbytes.append(0)
         while len(self.rsmbytes) < len(self.old_data['rsmbytes']):
             self.rsmbytes.append(0)
-        if self.actions:
-            assert all(action <= 0x1a5 for action in self.actions)
-        if self.rsms:
-            assert all(rsm >= 0x1a6 for rsm in self.rsms if rsm > 0)
+        if self.action_indexes:
+            assert all(action <= 0x1a5 for action in self.action_indexes)
+        if self.rsm_indexes:
+            assert all(rsm >= 0x1a6 for rsm in self.rsm_indexes if rsm > 0)
+
+        if self.index == 0x19:
+            assert self.skills_are_subset_of(self.get(0x1a))
+        if self.index == 0x1a:
+            assert self.skills_are_subset_of(self.get(0x1b))
 
 
 class MonsterSkillsObject(TableObject): pass
@@ -913,7 +999,8 @@ class JobReqObject(TableObject):
 
     @classproperty
     def jobtree(self):
-        jobreqs = sorted(self.every, key=lambda j: j.total_levels)
+        jobreqs = sorted(self.every, key=lambda j: (j.total_levels,
+                                                    j.signature))
         jobtree = {}
         for j in jobreqs:
             jobtree[j] = set([])
@@ -965,9 +1052,20 @@ class JobReqObject(TableObject):
 
     @classmethod
     def get_by_name(self, name):
-        jros = [j for j in JobReqObject.every if j.name == name[:3]]
+        if not hasattr(JobReqObject, '_by_name_dict'):
+            JobReqObject._by_name_dict = {}
+        if name in JobReqObject._by_name_dict:
+            return JobReqObject._by_name_dict[name]
+
+        jros = [j for j in JobReqObject.every
+                if j.name.lower() == name.lower()[:3]]
         if len(jros) == 1:
-            return jros[0]
+            jro = jros[0]
+        else:
+            jro = None
+
+        JobReqObject._by_name_dict[name] = jro
+        return JobReqObject.get_by_name(name)
 
     @property
     def job_index(self):
@@ -991,6 +1089,15 @@ class JobReqObject(TableObject):
     def total_levels(self):
         return sum(self.get_recursive_reqs().values())
 
+    @property
+    def squire_only(self):
+        for name in JobObject.GENERIC_NAMES:
+            if name.lower().startswith('squ'):
+                continue
+            if self.get_req(name):
+                return False
+        return True
+
     def get_jp_total(self, old=False):
         if old and hasattr(self, '_old_jp'):
             return self._old_jp
@@ -1003,12 +1110,13 @@ class JobReqObject(TableObject):
         return jp_total
 
     def get_recursive_reqs(self, old=False):
-        if (hasattr(JobReqObject, '_lockdown')
-                and self in JobReqObject._lockdown and not old):
-            return JobReqObject._lockdown[self]
+        names = [name[:3] for name in JobObject.GENERIC_NAMES]
+        if hasattr(self, '_lockdown') and not old:
+            if self._lockdown is None:
+                self._lockdown = {name: self.get_req(name) for name in names}
+            return self._lockdown
 
         reqs = defaultdict(int)
-        names = [name[:3] for name in JobObject.GENERIC_NAMES]
         done_names = set()
         while True:
             prev_reqs = dict(reqs)
@@ -1027,11 +1135,6 @@ class JobReqObject(TableObject):
                     done_names.add(name)
             if reqs == prev_reqs:
                 break
-
-        if hasattr(JobReqObject, '_lockdown') and not old:
-            assert self not in JobReqObject._lockdown
-            JobReqObject._lockdown[self] = prev_reqs
-            return self.get_recursive_reqs(old=old)
 
         return prev_reqs
 
@@ -1076,7 +1179,7 @@ class JobReqObject(TableObject):
         return reqs
 
     def get_req(self, job_prefix, old=False):
-        job_prefix = job_prefix[:3]
+        job_prefix = job_prefix[:3].lower()
         for attr in self.old_data:
             if old:
                 value = self.old_data[attr]
@@ -1088,9 +1191,10 @@ class JobReqObject(TableObject):
                 return value & 0xf
 
     def set_req(self, job_prefix, level):
-        if hasattr(JobReqObject, '_lockdown'):
+        if hasattr(self, '_lockdown'):
             raise Exception('Lockdown violation.')
 
+        job_prefix = job_prefix[:3].lower()
         for attr in self.old_data:
             value = getattr(self, attr)
             if attr.startswith(job_prefix):
@@ -1110,11 +1214,16 @@ class JobReqObject(TableObject):
             self.set_req(job_prefix, value + 1)
 
     def clear_reqs(self):
-        if hasattr(JobReqObject, '_lockdown'):
+        if hasattr(self, '_lockdown'):
             raise Exception('Lockdown violation.')
 
         for attr in self.old_data:
             setattr(self, attr, 0)
+
+    def fill_reqs(self):
+        for req, level in self.get_recursive_reqs().items():
+            self.set_req(req, level)
+        self._lockdown = None
 
     @classmethod
     def randomize_all(self):
@@ -1193,8 +1302,10 @@ class JobReqObject(TableObject):
             prereqqed[next_name] = 0
             jp_values = jp_values[1:]
 
+        for jro in JobReqObject.every:
+            jro.fill_reqs()
+
         super().randomize_all()
-        JobReqObject._lockdown = {}
 
     def cleanup(self):
         assert self.get_recursive_reqs()[self.name] == 0
@@ -1264,7 +1375,7 @@ class MoveFindObject(TableObject):
 
         template = random.choice([mfo for mfo in MoveFindObject.every
                                   if mfo.is_active])
-        self.misc1 = template.misc1
+        self.misc1 = template.old_data['misc1']
         if (not template.old_item_null and (
                 self.old_item_null
                 or random.random() < self.random_degree)):
@@ -1448,7 +1559,7 @@ class EncounterObject(TableObject):
 
     @classproperty
     def randomize_order(self):
-        return sorted(self.every, key=lambda e: (e.signature, e.index))
+        return sorted(self.every, key=lambda e: e.signature)
 
     @cached_property
     def canonical_relative(self):
@@ -1992,7 +2103,7 @@ class UnitObject(TableObject):
 
     @classproperty
     def after_order(self):
-        return [ENTDObject]
+        return [ENTDObject, SkillsetObject, JobReqObject]
 
     @cached_property
     def entd_index(self):
@@ -2001,6 +2112,14 @@ class UnitObject(TableObject):
     @cached_property
     def entd(self):
         return ENTDObject.get(self.entd_index)
+
+    @property
+    def is_valid(self):
+        if not (self.is_present or self.is_important):
+            return False
+        if not self.entd.is_valid:
+            return False
+        return True
 
     @cached_property
     def rank(self):
@@ -2019,6 +2138,45 @@ class UnitObject(TableObject):
         UnitObject._human_unit_pool = units
 
         return self.human_unit_pool
+
+    @property
+    def human_unit_pool_member(self):
+        if hasattr(self, '_human_unit_pool_member'):
+            return self._human_unit_pool_member
+
+        for u in UnitObject.every:
+            u._human_unit_pool_member = None
+
+        for u in self.human_unit_pool:
+            u._human_unit_pool_member = self
+
+        for e in ENTDObject.every:
+            units = e.units
+            pool_units = [u for u in units if u._human_unit_pool_member]
+            if 1 <= len(pool_units) <= len(units):
+                member = sorted(pool_units, key=lambda u: u.signature)[0]
+                for u in units:
+                    if u._human_unit_pool_member is None:
+                        u._human_unit_pool_member = member
+
+        return self.human_unit_pool_member
+
+    @classproperty
+    def all_used_skillsets(self):
+        if hasattr(UnitObject, '_all_used_skillsets'):
+            return UnitObject._all_used_skillsets
+
+        max_index = len(SkillsetObject.every)-1
+        pool = {u.old_data['secondary'] for u in UnitObject.every
+                if u.is_valid}
+        pool |= {u.old_job.old_data['skillset_index'] for u in UnitObject.every
+                 if u.is_valid}
+        pool = [SkillsetObject.get(i) for i in sorted(pool)
+                if 5 <= i <= max_index]
+        pool = [p for p in pool if set(p.old_action_indexes) != {0}]
+        self._all_used_skillsets = pool
+
+        return UnitObject.all_used_skillsets
 
     @property
     def neighbors(self):
@@ -2114,8 +2272,7 @@ class UnitObject(TableObject):
             candidates = sorted(
                 jro_jps, key=lambda jro_index: (
                     jro_jps[jro_index],
-                    JobReqObject.get_by_job_index(jro_index).signature,
-                    jro_index))
+                    JobReqObject.get_by_job_index(jro_index).signature))
             candidates = [
                 c for c in candidates
                 if (self.MALE_GRAPHIC, c) not in exclude_sprites]
@@ -2340,16 +2497,7 @@ class UnitObject(TableObject):
             if self.rank < 0:
                 template = self
             else:
-                unit = None
-                if self.old_data['graphic'] != self.MONSTER_GRAPHIC:
-                    unit = self
-                else:
-                    neighbors = [
-                        u for u in self.neighbors
-                        if u.old_data['graphic'] != self.MONSTER_GRAPHIC
-                        and u.rank >= 0 and (u.is_present or u.is_important)]
-                    if neighbors:
-                        unit = random.choice(neighbors)
+                unit = self.human_unit_pool_member
 
                 if unit:
                     template = unit.get_similar(
@@ -2415,13 +2563,134 @@ class UnitObject(TableObject):
         if random.random() < self.random_degree / 2:
             self.lefthand, self.righthand = self.righthand, self.lefthand
 
+    def randomize_secondary(self):
+        if self.job.is_monster:
+            return
+
+        generic_jobs = [
+            JobObject.get_by_name(name) for name in JobObject.GENERIC_NAMES
+            if name.lower()[:3] != 'squ']
+        generic_jobs = sorted(
+            generic_jobs, key=lambda j: (j.get_jp_total(),
+                                         j.signature))
+
+        if (self.job.is_generic
+                and not self.job.index == JobObject.SQUIRE_INDEX):
+            jp_jobs = [
+                j for j in generic_jobs if
+                self.job.jobreq.reqs_are_subset_of(j.jobreq)]
+        else:
+            jp_jobs = generic_jobs
+
+        if self.job.jobreq and self.job.jobreq.squire_only:
+            jp_jobs = [JobObject.get_by_name('squire')] + jp_jobs
+
+        if self.ranked_ratio is not None:
+            max_index = len(jp_jobs) - 1
+            index = int(round(mutate_normal(
+                self.ranked_ratio, 0, 1, random_degree=self.random_degree,
+                return_float=True, wide=True) * max_index))
+            jp_job = jp_jobs[index]
+
+            jp_job_level = int(round(mutate_normal(
+                self.ranked_ratio, 0, 1, random_degree=self.random_degree,
+                return_float=True, wide=True) * 8))
+        else:
+            jp_job = random.choice(jp_jobs)
+            jp_job_level = random.randint(0, 8)
+
+        if jp_job.index == JobObject.SQUIRE_INDEX and self.job.jobreq:
+            jp_job_level = max(jp_job_level, self.job.jobreq.get_req('squ'))
+
+        self.unlocked = jp_job.index - JobObject.SQUIRE_INDEX
+        self.unlocked_level = jp_job_level
+
+        skillset_jobs = set()
+        if self.job.jobreq:
+            skillset_jobs |= {
+                j for j in generic_jobs if
+                j.jobreq.reqs_are_subset_of(self.job.jobreq)}
+        if jp_job.jobreq:
+            skillset_jobs |= {
+                j for j in generic_jobs if
+                j.jobreq.reqs_are_subset_of(jp_job.jobreq)}
+
+        if self.job.is_generic:
+            skillset_jobs.add(JobObject.get(JobObject.SQUIRE_INDEX))
+
+        skillset_jobs = sorted(
+            skillset_jobs, key=lambda j: (j.get_jp_total(),
+                                          j.signature))
+
+        if self.human_unit_pool_member:
+            template = self.human_unit_pool_member.get_similar(
+                candidates=self.human_unit_pool, presorted=True)
+        else:
+            template = random.choice(self.human_unit_pool)
+
+        rsm_attrs = ['reaction', 'support', 'movement']
+        if (any(1 <= template.old_data[attr] <= 0x1fd for attr in rsm_attrs)
+                or 1 <= template.old_data['secondary'] <= 0xfd):
+            if random.random() < self.random_degree ** 2:
+                chosen = random.choice(UnitObject.all_used_skillsets)
+                self.secondary = chosen.index
+            else:
+                if self.ranked_ratio is not None:
+                    max_index = len(skillset_jobs) - 1
+                    index = int(round(mutate_normal(
+                        self.ranked_ratio, 0, 1,
+                        random_degree=self.random_degree,
+                        return_float=True, wide=True) * max_index))
+                    chosen = skillset_jobs[index]
+                else:
+                    chosen = random.choice(skillset_jobs)
+                self.secondary = chosen.skillset_index
+
+        for attr in rsm_attrs:
+            if self.human_unit_pool_member:
+                template = self.human_unit_pool_member.get_similar(
+                    candidates=self.human_unit_pool, presorted=True)
+            else:
+                template = random.choice(self.human_unit_pool)
+
+            if not any(1 <= template.old_data[attr2] <= 0x1fd
+                       for attr2 in rsm_attrs):
+                continue
+
+            if random.random() < self.random_degree:
+                if random.random() < self.random_degree ** 2:
+                    pool = getattr(AbilityObject, '%s_pool' % attr)
+                else:
+                    pool = {rsm for job in skillset_jobs
+                            for rsm in job.rsms
+                            if getattr(rsm , 'is_%s' % attr)}
+            else:
+                pool = {rsm for rsm in self.job.rsms
+                        if getattr(rsm, 'is_%s' % attr)}
+
+            if not pool:
+                continue
+
+            if isinstance(pool, set):
+                pool = sorted(pool, key=lambda rsm: (rsm.rank, rsm.signature))
+
+            if self.ranked_ratio is not None:
+                max_index = len(pool) - 1
+                index = int(round(mutate_normal(
+                    self.ranked_ratio, 0, 1, random_degree=self.random_degree,
+                    return_float=True, wide=True) * max_index))
+                chosen = pool[index]
+            else:
+                chosen = random.choice(pool)
+
+            setattr(self, attr, chosen.index)
+
     def randomize(self):
         self.randomize_job()
-        if not (self.is_present or self.is_important):
-            return
-        if not self.entd.is_valid:
+        if not self.is_valid:
             return
         if not self.get_bit('load_formation'):
+            self.randomize_secondary()
             self.randomize_equips()
             self.randomize_handedness()
         super().randomize()
@@ -2442,6 +2711,17 @@ class UnitObject(TableObject):
                 self.preclean()
 
     def cleanup(self):
+        equips = ['head', 'body', 'accessory', 'righthand', 'lefthand']
+        for equip in equips:
+            if (self.old_data['graphic'] == self.MONSTER_GRAPHIC
+                    and not self.is_monster
+                    and getattr(self, equip) in (0, 0xff)):
+                setattr(self, equip, 0xfe)
+
+        for attr in ['reaction', 'support', 'movement']:
+            if getattr(self, attr) in JobObject.BANNED_RSMS:
+                setattr(self, attr, 0x1fe)
+
         if self.get_bit('always_present'):
             for u in self.neighbors:
                 if u.get_bit('always_present') and u is not self:
@@ -2468,7 +2748,7 @@ class ENTDObject(TableObject):
 
     @cached_property
     def units(self):
-        return [u for u in UnitObject.every if u.entd_index == self.index]
+        return [UnitObject.get((self.index << 4) | i) for i in range(0x10)]
 
     @cached_property
     def avg_level(self):

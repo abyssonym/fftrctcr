@@ -1,8 +1,5 @@
-skillset,1
-innate1,2
-innate2,2
-innate3,2
-innate4,2
+skillset_index,1
+innates,4x2,list
 equips,4
 hpgrowth,1
 hpmult,1
