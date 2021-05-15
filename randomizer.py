@@ -143,6 +143,9 @@ class AbilityStatusObject(TableObject):
 
 
 class JobObject(TableObject):
+    flag = 'j'
+    flag_description = 'job stats'
+
     GENERIC_NAMES = [
         "squire", "chemist", "knight", "archer", "monk", "priest", "wizard",
         "timemage", "summoner", "thief", "mediator", "oracle", "geomancer",
@@ -355,6 +358,17 @@ class JobObject(TableObject):
 
         return self.rank
 
+    @classproperty
+    def ranked_monsters(self):
+        if hasattr(JobObject, '_ranked_monsters'):
+            return JobObject._ranked_monsters
+
+        ranked_monsters = [j for j in JobObject.ranked
+                           if j.intershuffle_group == JobObject.GROUP_MONSTER]
+        self._ranked_monsters = ranked_monsters
+
+        return self.ranked_monsters
+
     @property
     def name(self):
         if self.is_generic:
@@ -362,6 +376,9 @@ class JobObject(TableObject):
                 self.index-JobObject.SQUIRE_INDEX].upper()
         else:
             return 'JOB {0:0>2X}'.format(self.index)
+
+    def can_equip(self, item):
+        return self.equips & item.equip_flag
 
     def magic_mutate_bits(self):
         super().magic_mutate_bits(random_degree=self.random_degree ** 0.5)
@@ -444,8 +461,19 @@ class ItemObject(MutateBoostMixin):
         return rank
 
     @property
+    def intershuffle_valid(self):
+        return self.rank >= 0
+
+    @property
+    def equip_flag(self):
+        byte = self.item_type // 8
+        bit = self.item_type % 8
+        bit = 7 - bit
+        return (1 << bit) << (byte * 8)
+
+    @property
     def priceless(self):
-        if self.price <= 10:
+        if self.old_data['price'] <= 10:
             return True
         elif self.index in self.PRICELESS_ITEMS:
             return True
@@ -644,6 +672,9 @@ class ItemAttributesObject(MutateBoostMixin):
 
 
 class SkillsetObject(TableObject):
+    flag = 's'
+    flag_description = 'job skillsets'
+
     BANNED_SKILLS = lange(0x165, 0x16f)
     MATH_SKILLETS = {0xa, 0xb, 0xc, 0x10}
     BANNED_ANYTHING = {0x18}  # mimic
@@ -961,16 +992,26 @@ class JobReqObject(TableObject):
         return sum(self.get_recursive_reqs().values())
 
     def get_jp_total(self, old=False):
+        if old and hasattr(self, '_old_jp'):
+            return self._old_jp
         levels = self.get_recursive_reqs(old=old).values()
         jps = [JobJPReqObject.get(level-1).jp for level in levels if level > 0]
-        return sum(jps)
+        jp_total = sum(jps)
+        if old:
+            self._old_jp = jp_total
+            return self.get_jp_total(old=old)
+        return jp_total
 
     def get_recursive_reqs(self, old=False):
+        if (hasattr(JobReqObject, '_lockdown')
+                and self in JobReqObject._lockdown and not old):
+            return JobReqObject._lockdown[self]
+
         reqs = defaultdict(int)
         names = [name[:3] for name in JobObject.GENERIC_NAMES]
         done_names = set()
         while True:
-            old_reqs = dict(reqs)
+            prev_reqs = dict(reqs)
             for name in names:
                 if name in done_names:
                     continue
@@ -984,10 +1025,15 @@ class JobReqObject(TableObject):
                             reqs[other_name] = max(reqs[other_name],
                                                    other_level)
                     done_names.add(name)
-            if reqs == old_reqs:
+            if reqs == prev_reqs:
                 break
 
-        return old_reqs
+        if hasattr(JobReqObject, '_lockdown') and not old:
+            assert self not in JobReqObject._lockdown
+            JobReqObject._lockdown[self] = prev_reqs
+            return self.get_recursive_reqs(old=old)
+
+        return prev_reqs
 
     def reqs_are_subset_of(self, other):
         self_reqs, other_reqs = (self.get_recursive_reqs(),
@@ -1042,6 +1088,9 @@ class JobReqObject(TableObject):
                 return value & 0xf
 
     def set_req(self, job_prefix, level):
+        if hasattr(JobReqObject, '_lockdown'):
+            raise Exception('Lockdown violation.')
+
         for attr in self.old_data:
             value = getattr(self, attr)
             if attr.startswith(job_prefix):
@@ -1061,6 +1110,9 @@ class JobReqObject(TableObject):
             self.set_req(job_prefix, value + 1)
 
     def clear_reqs(self):
+        if hasattr(JobReqObject, '_lockdown'):
+            raise Exception('Lockdown violation.')
+
         for attr in self.old_data:
             setattr(self, attr, 0)
 
@@ -1142,6 +1194,7 @@ class JobReqObject(TableObject):
             jp_values = jp_values[1:]
 
         super().randomize_all()
+        JobReqObject._lockdown = {}
 
     def cleanup(self):
         assert self.get_recursive_reqs()[self.name] == 0
@@ -1365,6 +1418,9 @@ class FormationObject(TableObject):
 
 
 class EncounterObject(TableObject):
+    flag = 'f'
+    flag_description = 'enemy and ally formations'
+
     ENABLE_RECKLESS_REPLACEMENT = True
 
     NO_REPLACE = {0x184, 0x185, 0x1c2}
@@ -1845,9 +1901,6 @@ class MeshObject(MapMixin):
         def bad(self):
             if self.occupied or self.unreachable:
                 return True
-            if self.terrain_type in [0x12, 0x24]:
-                # bad terrain : lava, water plant
-                return True
             return self.bad_regardless
 
         @property
@@ -1857,6 +1910,9 @@ class MeshObject(MapMixin):
             if self.slope_height > 2:
                 return True
             if self.depth > 2:
+                return True
+            if self.terrain_type in [0x12, 0x24]:
+                # bad terrain : lava, water plant
                 return True
             return False
 
@@ -1920,6 +1976,9 @@ class TextureObject(MapMixin): pass
 
 
 class UnitObject(TableObject):
+    flag = 'u'
+    flag_description = 'enemy and ally units'
+
     DAYS_IN_MONTH = {1: 31, 2: 28, 3: 31, 4: 30, 5: 31, 6: 30,
                      7: 31, 8: 31, 9: 30, 10: 31, 11: 30, 12: 31}
 
@@ -1935,13 +1994,31 @@ class UnitObject(TableObject):
     def after_order(self):
         return [ENTDObject]
 
-    @property
+    @cached_property
     def entd_index(self):
         return self.index >> 4
 
-    @property
+    @cached_property
     def entd(self):
         return ENTDObject.get(self.entd_index)
+
+    @cached_property
+    def rank(self):
+        if self.entd.avg_level is not None:
+            return self.entd.avg_level
+        return -1
+
+    @classproperty
+    def human_unit_pool(self):
+        if hasattr(UnitObject, '_human_unit_pool'):
+            return UnitObject._human_unit_pool
+
+        units = [u for u in self.ranked if (u.is_present or u.is_important)
+                 and u.old_data['graphic'] != self.MONSTER_GRAPHIC
+                 and u.rank >= 0]
+        UnitObject._human_unit_pool = units
+
+        return self.human_unit_pool
 
     @property
     def neighbors(self):
@@ -2012,12 +2089,11 @@ class UnitObject(TableObject):
         graphic, job_sprite = self.old_sprite_id
         if graphic == UnitObject.MONSTER_GRAPHIC:
             candidates = [
-                j for j in JobObject.every
-                if j.intershuffle_group == JobObject.GROUP_MONSTER
-                and (graphic, j.monster_portrait) not in exclude_sprites]
+                j for j in JobObject.ranked_monsters
+                if (graphic, j.monster_portrait) not in exclude_sprites]
             new_monster = self.old_job.get_similar(
                 candidates=candidates, override_outsider=True, wide=True,
-                random_degree=random_degree)
+                random_degree=random_degree, presorted=True)
             new_sprite = graphic, new_monster.monster_portrait
             assert new_sprite not in exclude_sprites
             return new_sprite
@@ -2095,7 +2171,7 @@ class UnitObject(TableObject):
             return True
         return self.entd.is_valid and self.is_present and self.unit_id != 0xff
 
-    @property
+    @cached_property
     def encounter(self):
         encounters = [e for e in EncounterObject.every
                       if e.entd_index == self.entd_index
@@ -2253,9 +2329,102 @@ class UnitObject(TableObject):
             self.clear_gender()
             self.set_bit('monster', True)
 
+    def randomize_equips(self):
+        equips = ['head', 'body', 'accessory', 'righthand', 'lefthand']
+        if self.job.is_monster:
+            for equip in equips:
+                setattr(self, equip, 0)
+            return
+
+        for equip in equips:
+            if self.rank < 0:
+                template = self
+            else:
+                unit = None
+                if self.old_data['graphic'] != self.MONSTER_GRAPHIC:
+                    unit = self
+                else:
+                    neighbors = [
+                        u for u in self.neighbors
+                        if u.old_data['graphic'] != self.MONSTER_GRAPHIC
+                        and u.rank >= 0 and (u.is_present or u.is_important)]
+                    if neighbors:
+                        unit = random.choice(neighbors)
+
+                if unit:
+                    template = unit.get_similar(
+                        candidates=self.human_unit_pool, presorted=True)
+                else:
+                    template = self
+
+            tequips = [template.old_data[q] for q in equips
+                       if 1 <= template.old_data[q] <= 0xfd]
+            if not tequips:
+                tequips = [self.old_data[q] for q in equips
+                           if 1 <= self.old_data[q] <= 0xfd]
+            if not tequips:
+                continue
+            if len(tequips) < 5:
+                test = random.choice(tequips + [None])
+                if test is None:
+                    continue
+
+            candidates = [c for c in ItemObject.ranked if c.intershuffle_valid]
+            if equip in ['righthand', 'lefthand']:
+                candidates = [c for c in candidates if
+                              c.get_bit('weapon') or c.get_bit('shield')]
+            else:
+                candidates = [c for c in candidates if not
+                              (c.get_bit('weapon') or c.get_bit('shield'))]
+            if random.random() > self.random_degree ** 3:
+                if equip == 'righthand':
+                    candidates = [c for c in candidates if c.get_bit('weapon')]
+                elif equip == 'lefthand':
+                    dual_wield = False
+                    if 1 <= template.old_data['lefthand'] <= 0xfd:
+                        tleft = ItemObject.get(template.old_data['lefthand'])
+                        if tleft.get_bit('weapon'):
+                            dual_wield = True
+                    if not dual_wield:
+                        candidates = [c for c in candidates
+                                      if c.get_bit('shield')]
+                else:
+                    candidates = [c for c in candidates if c.get_bit(equip)]
+
+            if random.random() > self.random_degree ** 2:
+                candidates = [c for c in candidates
+                              if c.equip_flag & self.job.equips]
+
+            if not candidates:
+                setattr(self, equip, 0xfe)
+                continue
+
+            tequip = ItemObject.get(random.choice(tequips))
+            if self.has_unique_name and 1 <= self.old_data[equip] <= 0xfd:
+                old_equip = ItemObject.get(self.old_data[equip])
+                if old_equip.rank > tequip.rank:
+                    tequip = old_equip
+
+            new_equip = tequip.get_similar(
+                candidates=candidates, random_degree=self.random_degree,
+                override_outsider=True, wide=True, presorted=True)
+
+            setattr(self, equip, new_equip.index)
+
+    def randomize_handedness(self):
+        if random.random() < self.random_degree / 2:
+            self.lefthand, self.righthand = self.righthand, self.lefthand
+
     def randomize(self):
-        super().randomize()
         self.randomize_job()
+        if not (self.is_present or self.is_important):
+            return
+        if not self.entd.is_valid:
+            return
+        if not self.get_bit('load_formation'):
+            self.randomize_equips()
+            self.randomize_handedness()
+        super().randomize()
 
     def preclean(self):
         if self.is_important and self.map is not None:
@@ -2285,6 +2454,8 @@ class UnitObject(TableObject):
 
 
 class ENTDObject(TableObject):
+    flag = 'u'
+
     VALID_INDEXES = (
         lange(1, 9) + lange(0xd, 0x21) + lange(0x25, 0x2d) +
         lange(0x31, 0x45) + lange(0x49, 0x51) + lange(0x52, 0xfd) +
@@ -2310,7 +2481,7 @@ class ENTDObject(TableObject):
         avg = sum(levels) / len(levels)
         return ((2*highest) + avg) / 3
 
-    @property
+    @cached_property
     def old_jobs(self):
         return [JobObject.get(u.old_data['job_index']) for u in self.units
                 if u.is_present_old]
