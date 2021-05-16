@@ -112,6 +112,14 @@ class AbilityObject(TableObject):
                                         if a.is_movement and a.rank >= 0]
         return AbilityObject.movement_pool
 
+    @classproperty
+    def passive_pool(self):
+        if hasattr(AbilityObject, '_passive_pool'):
+            return AbilityObject._passive_pool
+        AbilityObject._passive_pool = (self.reaction_pool + self.support_pool
+                                       + self.movement_pool)
+        return AbilityObject.passive_pool
+
     def preprocess(self):
         if self.index == self.TELEPORT2:
             self.jp_cost = 9999
@@ -762,7 +770,7 @@ class SkillsetObject(TableObject):
     flag = 's'
     flag_description = 'job skillsets'
 
-    BANNED_SKILLS = set(range(0x165, 0x16f))
+    BANNED_SKILLS = set([0x28, 0x2d, 0xdb, 0xdc] + lange(0x165, 0x16f))
     MATH_SKILLETS = {0xa, 0xb, 0xc, 0x10}
     BANNED_ANYTHING = {0x18}  # mimic
     BANNED_SKILLSET_SHUFFLE = {0, 1, 2, 3, 6, 8, 0x11, 0x12, 0x13, 0x14, 0x15,
@@ -814,15 +822,16 @@ class SkillsetObject(TableObject):
     def old_action_indexes(self):
         return self.get_actions(old=True)
 
-    def set_actions(self, actions, order_new=False):
+    def set_actions(self, actions, order_new=None):
         assert 0 not in actions
-        actions = sorted(actions)
-        old_actions = [a for a in actions if a in self.old_action_indexes]
-        new_actions = [a for a in actions if a not in old_actions]
-        if order_new:
-            actions = new_actions + old_actions
-        else:
-            actions = old_actions + new_actions
+        if order_new is not None:
+            actions = sorted(actions)
+            old_actions = [a for a in actions if a in self.old_action_indexes]
+            new_actions = [a for a in actions if a not in old_actions]
+            if order_new:
+                actions = new_actions + old_actions
+            else:
+                actions = old_actions + new_actions
         actionbits = 0
         actionbytes = []
         for i, a in enumerate(actions):
@@ -972,6 +981,7 @@ class SkillsetObject(TableObject):
                     assert done_skillsets[ss] == name
                 else:
                     done_skillsets[ss] = name
+                ss.preshuffled = True
 
         for ss in SkillsetObject.every:
             if ss.is_generic:
@@ -979,6 +989,50 @@ class SkillsetObject(TableObject):
                     order_new = random.choice([True, False])
                     ss.set_actions(final_actions[ss.index], order_new)
                 ss.set_rsms(final_rsms[ss.index])
+                ss.preshuffled = True
+
+            assert self.get(0x19).skills_are_subset_of(self.get(0x1a))
+            assert self.get(0x1a).skills_are_subset_of(self.get(0x1b))
+
+
+    def randomize(self):
+        if hasattr(self, 'preshuffled') and self.preshuffled:
+            exponent = 3.5
+        else:
+            exponent = 2
+
+        rsm_indexes = list(self.rsm_indexes)
+        if len(rsm_indexes) < 6:
+            rsm_indexes += ([0] * (6 - len(rsm_indexes)))
+        assert len(rsm_indexes) == 6
+
+        for i in range(len(rsm_indexes)):
+            if random.random() < self.random_degree ** exponent:
+                chosen = random.choice(AbilityObject.passive_pool).index
+                if chosen not in rsm_indexes:
+                    rsm_indexes[i] = chosen
+
+        self.set_rsms([i for i in rsm_indexes if i > 0])
+
+        action_indexes = list(self.action_indexes)
+        if self.index in self.BANNED_SKILLSET_SHUFFLE:
+            action_indexes = [i for i in action_indexes if i > 0 and not
+                              (random.random() < self.random_degree
+                                  and random.choice([True, False]))]
+            self.set_actions(action_indexes, order_new=None)
+            return
+
+        if len(action_indexes) < 16:
+            action_indexes += ([0] * (16 - len(action_indexes)))
+        assert len(action_indexes) == 16
+
+        for i in range(len(action_indexes)):
+            if random.random() < self.random_degree ** exponent:
+                chosen = random.choice(AbilityObject.action_pool).index
+                if chosen not in action_indexes:
+                    action_indexes[i] = chosen
+
+        self.set_actions([i for i in action_indexes if i > 0], order_new=None)
 
     def skills_are_subset_of(self, other):
         return (set(self.actions) <= set(other.actions) and
@@ -997,13 +1051,10 @@ class SkillsetObject(TableObject):
             assert all(rsm >= 0x1a6 for rsm in self.rsm_indexes if rsm > 0)
             assert not (set(self.rsm_indexes) & SkillsetObject.BANNED_SKILLS)
 
-        if self.index == 0x19:
-            assert self.skills_are_subset_of(self.get(0x1a))
-        if self.index == 0x1a:
-            assert self.skills_are_subset_of(self.get(0x1b))
-
 
 class MonsterSkillsObject(TableObject):
+    flag = 'j'
+
     CHOCOBO_SKILLSET_INDEX = 0xb0
 
     @property
@@ -2373,7 +2424,7 @@ class UnitObject(TableObject):
             else:
                 jro = JobReqObject.get_by_job_index(job_sprite)
                 jp = jro.get_jp_total(old=True)
-                jp = mutate_normal(jp, 0, max_jp,
+                jp = mutate_normal(jp, 0, max(jp, max_jp),
                                    random_degree=random_degree)
                 jp = round(jp * 2, -2) // 2
             candidates = sorted(
@@ -2383,7 +2434,11 @@ class UnitObject(TableObject):
             candidates = [
                 c for c in candidates
                 if (self.MALE_GRAPHIC, c) not in exclude_sprites]
-            chosen = [c for c in candidates if jro_jps[c] >= jp][0]
+            temp = [c for c in candidates if jro_jps[c] >= jp]
+            if temp:
+                chosen = temp[0]
+            else:
+                chosen = random.choice(candidates)
             index = candidates.index(chosen)
             squire = (UnitObject.MALE_GRAPHIC, JobObject.SQUIRE_INDEX)
             if (index == 0 and squire not in exclude_sprites
