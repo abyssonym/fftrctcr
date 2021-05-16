@@ -47,9 +47,15 @@ class MutateBoostMixin(TableObject):
 
 class AbilityObject(TableObject):
     TELEPORT2 = 0x1f3
+    CHARGE_20 = 0x164
+    JUMPS = lange(0x18a, 0x196)
 
     @property
     def rank(self):
+        if self.index in JobObject.BANNED_RSMS:
+            return -1
+        if self.index in SkillsetObject.BANNED_SKILLS:
+            return -1
         self.preprocess()
         return self.old_data['jp_cost']
 
@@ -69,28 +75,42 @@ class AbilityObject(TableObject):
     def is_movement(self):
         return self.ability_type == 9
 
+    @property
+    def is_action(self):
+        return (self.index <= self.CHARGE_20 and self.index not in self.JUMPS
+                and self.ability_type not in (7, 8, 9))
+
+    @classproperty
+    def action_pool(self):
+        if hasattr(AbilityObject, '_action_pool'):
+            return AbilityObject._action_pool
+        AbilityObject._action_pool = [a for a in AbilityObject.ranked
+                                      if a.is_action and a.rank >= 0]
+        return AbilityObject.action_pool
+
     @classproperty
     def reaction_pool(self):
-        if hasattr(self, '_reaction_pool'):
-            return self._reaction_pool
-        self._reaction_pool = [a for a in AbilityObject.ranked
-                               if a.is_reaction]
-        return self.reaction_pool
+        if hasattr(AbilityObject, '_reaction_pool'):
+            return AbilityObject._reaction_pool
+        AbilityObject._reaction_pool = [a for a in AbilityObject.ranked
+                                        if a.is_reaction and a.rank >= 0]
+        return AbilityObject.reaction_pool
 
     @classproperty
     def support_pool(self):
-        if hasattr(self, '_support_pool'):
-            return self._support_pool
-        self._support_pool = [a for a in AbilityObject.ranked if a.is_support]
-        return self.support_pool
+        if hasattr(AbilityObject, '_support_pool'):
+            return AbilityObject._support_pool
+        AbilityObject._support_pool = [a for a in AbilityObject.ranked
+                                       if a.is_support and a.rank >= 0]
+        return AbilityObject.support_pool
 
     @classproperty
     def movement_pool(self):
-        if hasattr(self, '_movement_pool'):
-            return self._movement_pool
-        self._movement_pool = [a for a in AbilityObject.ranked
-                               if a.is_movement]
-        return self.movement_pool
+        if hasattr(AbilityObject, '_movement_pool'):
+            return AbilityObject._movement_pool
+        AbilityObject._movement_pool = [a for a in AbilityObject.ranked
+                                        if a.is_movement and a.rank >= 0]
+        return AbilityObject.movement_pool
 
     def preprocess(self):
         if self.index == self.TELEPORT2:
@@ -742,7 +762,7 @@ class SkillsetObject(TableObject):
     flag = 's'
     flag_description = 'job skillsets'
 
-    BANNED_SKILLS = lange(0x165, 0x16f)
+    BANNED_SKILLS = set(range(0x165, 0x16f))
     MATH_SKILLETS = {0xa, 0xb, 0xc, 0x10}
     BANNED_ANYTHING = {0x18}  # mimic
     BANNED_SKILLSET_SHUFFLE = {0, 1, 2, 3, 6, 8, 0x11, 0x12, 0x13, 0x14, 0x15,
@@ -971,8 +991,11 @@ class SkillsetObject(TableObject):
             self.rsmbytes.append(0)
         if self.action_indexes:
             assert all(action <= 0x1a5 for action in self.action_indexes)
+            assert not (set(self.action_indexes) &
+                        SkillsetObject.BANNED_SKILLS)
         if self.rsm_indexes:
             assert all(rsm >= 0x1a6 for rsm in self.rsm_indexes if rsm > 0)
+            assert not (set(self.rsm_indexes) & SkillsetObject.BANNED_SKILLS)
 
         if self.index == 0x19:
             assert self.skills_are_subset_of(self.get(0x1a))
@@ -980,7 +1003,91 @@ class SkillsetObject(TableObject):
             assert self.skills_are_subset_of(self.get(0x1b))
 
 
-class MonsterSkillsObject(TableObject): pass
+class MonsterSkillsObject(TableObject):
+    CHOCOBO_SKILLSET_INDEX = 0xb0
+
+    @property
+    def skillset_index(self):
+        return self.index + self.CHOCOBO_SKILLSET_INDEX
+
+    @property
+    def skill_indexes(self):
+        indexes = []
+        for i, attack in enumerate(self.attackbytes):
+            highbit = (self.highbits >> (7-i)) & 1
+            if highbit:
+                attack |= 0x100
+            indexes.append(attack)
+        return indexes
+
+    @cached_property
+    def old_skill_indexes(self):
+        indexes = []
+        for i, attack in enumerate(self.old_data['attackbytes']):
+            highbit = (self.old_data['highbits'] >> (7-i)) & 1
+            if highbit:
+                attack |= 0x100
+            indexes.append(attack)
+        return indexes
+
+    @property
+    def skills(self):
+        return [AbilityObject.get(i) for i in self.skill_indexes if i > 0]
+
+    def set_skill_indexes(self, indexes):
+        self.attackbytes = [i & 0xff for i in indexes]
+        self.highbits = 0
+        for (i, skill) in enumerate(indexes):
+            if skill & 0x100:
+                self.highbits |= (1 << (7-i))
+        assert self.skill_indexes == indexes
+
+    @cached_property
+    def monster_type(self):
+        monsters = [j for j in JobObject.every
+                    if j.old_data['skillset_index'] == self.skillset_index]
+        if len(monsters) == 1:
+            monster_type = monsters[0].old_data['monster_portrait']
+            assert monster_type > 0
+            return monster_type
+
+    @cached_property
+    def family(self):
+        return [m for m in MonsterSkillsObject.every
+                if m.monster_type == self.monster_type]
+
+    @classproperty
+    def monster_skill_pool(self):
+        if hasattr(MonsterSkillsObject, '_monster_skill_pool'):
+            return MonsterSkillsObject._monster_skill_pool
+
+        pool = sorted({i for m in MonsterSkillsObject.every
+                       for i in m.old_skill_indexes})
+        MonsterSkillsObject._monster_skill_pool = pool
+        return MonsterSkillsObject.monster_skill_pool
+
+    def randomize(self):
+        family_skill_pool = sorted({i for m in self.family
+                                    for i in m.old_skill_indexes
+                                    if i > 0})
+        new_skills = []
+        while len(new_skills) < 4:
+            if random.random() < self.random_degree:
+                if random.random() < self.random_degree:
+                    pool = AbilityObject.action_pool
+                else:
+                    pool = self.monster_skill_pool
+            else:
+                pool = family_skill_pool
+            chosen = random.choice(pool)
+            if isinstance(chosen, AbilityObject):
+                chosen = chosen.index
+            if chosen in new_skills:
+                continue
+            if chosen > 0:
+                new_skills.append(chosen)
+        new_skills[:3] = sorted(new_skills[:3])
+        self.set_skill_indexes(new_skills)
 
 
 class PoachObject(TableObject):
