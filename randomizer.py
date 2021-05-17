@@ -326,7 +326,8 @@ class JobObject(TableObject):
 
     @property
     def is_monster(self):
-        return self.index >= 0x5e and not self.is_lucavi
+        return (self.index >= 0x5e and self.index in self.MONSTER_JOBS
+                and not self.is_lucavi)
 
     @property
     def is_lucavi(self):
@@ -351,6 +352,8 @@ class JobObject(TableObject):
             return self.GROUP_LUCAVI
         if self.is_monster:
             return self.GROUP_MONSTER
+        if self.index >= 0x5e:
+            return -1
         return self.GROUP_SPECIAL
 
     @cached_property
@@ -482,6 +485,43 @@ class JobObject(TableObject):
         for attr in self.old_data:
             if attr.endswith('growth') and self.old_data[attr] == 0:
                 setattr(self, attr, 0xff)
+
+    def randomize_innates(self):
+        if self.is_monster:
+            innates = [AbilityObject.get(i) for i in self.innates if i > 0]
+            old_supports = [i for i in innates if i.is_support]
+            old_reactions = [i for i in innates if i.is_reaction]
+            old_movements = [i for i in innates if i.is_movement]
+            assert len(old_reactions) == 1
+            new_reaction = random.choice(AbilityObject.reaction_pool)
+            new_other = old_supports + old_movements
+            while len(new_other) < 3:
+                chosen = random.choice(AbilityObject.support_pool +
+                                       AbilityObject.movement_pool)
+                if chosen not in new_other:
+                    new_other.append(chosen)
+            new_innates = sorted(new_other, key=lambda i: i.index)
+            new_innates.insert(2, new_reaction)
+            assert len(new_innates) == 4
+            self.innates = [ni.index for ni in new_innates]
+        elif not self.is_lucavi:
+            for i, innate in enumerate(self.innates):
+                if innate != 0 and random.random() > self.random_degree ** 2:
+                    continue
+                other = random.choice(
+                    self.get_similar(wide=True).old_data['innates'])
+                if other == 0:
+                    continue
+
+                if (other not in self.innates
+                        and random.random() > self.random_degree):
+                    self.innates[i] = other
+                else:
+                    self.innates[i] = (
+                        random.choice(AbilityObject.passive_pool).index)
+
+    def randomize(self):
+        self.randomize_innates()
 
     def preclean(self):
         if len(self.relatives) > 1:
@@ -1542,9 +1582,9 @@ class MoveFindObject(TableObject):
         else:
             common, rare = self.common, self.rare
         self.common = ItemObject.get(common).get_similar(
-            random_degree=self.random_degree).index
+            random_degree=self.random_degree, wide=True).index
         self.rare = ItemObject.get(rare).get_similar(
-            random_degree=self.random_degree).index
+            random_degree=self.random_degree, wide=True).index
 
 
 class FormationObject(TableObject):
@@ -2436,6 +2476,9 @@ class UnitObject(TableObject):
                 if (self.MALE_GRAPHIC, c) not in exclude_sprites]
             temp = [c for c in candidates if jro_jps[c] >= jp]
             if temp:
+                max_index = len(temp) - 1
+                factor = random.random() ** (1 / self.random_degree ** 2)
+                index = int(round(factor * max_index))
                 chosen = temp[0]
             else:
                 chosen = random.choice(candidates)
