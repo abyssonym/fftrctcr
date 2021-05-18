@@ -291,6 +291,13 @@ class JobObject(TableObject):
             names.remove('RANDOM GENERIC')
         return ','.join(sorted(names))
 
+    @property
+    def has_unique_name(self):
+        for word in ('GENERIC', 'NONE'):
+            if word in self.character_name:
+                return False
+        return True
+
     @cached_property
     def relatives(self):
         if self.character_name in ['NONE', 'RANDOM GENERIC']:
@@ -2789,14 +2796,29 @@ class UnitObject(TableObject):
         if len(genders) == 1:
             return genders[0]
 
+    def become_another(self, other):
+        for attr in ['graphic', 'name_index', 'month', 'day',
+                     'brave', 'faith', 'unlocked', 'unlocked_level',
+                     'job_index', 'palette']:
+            setattr(self, attr, other.old_data[attr])
+        for attr in ['head', 'body', 'accessory', 'righthand', 'lefthand',
+                     'secondary', 'reaction', 'support', 'movement']:
+            if random.choice([True, False]):
+                setattr(self, attr, other.old_data[attr])
+        self.clear_gender()
+        self.set_bit(other.get_gender(), True)
+
     def randomize_job(self):
         if hasattr(self, '_target_sprite'):
-            graphic, job_index, gender = self._target_sprite
-            self.graphic = graphic
-            self.job_index = job_index
-            if gender is not None:
-                self.clear_gender()
-                self.set_bit(gender, True)
+            if isinstance(self._target_sprite, UnitObject):
+                self.become_another(self._target_sprite)
+            else:
+                graphic, job_index, gender = self._target_sprite
+                self.graphic = graphic
+                self.job_index = job_index
+                if gender is not None:
+                    self.clear_gender()
+                    self.set_bit(gender, True)
             return
 
         if not self.has_generic_sprite:
@@ -2819,16 +2841,7 @@ class UnitObject(TableObject):
             break
 
         if isinstance(test, UnitObject):
-            for attr in ['graphic', 'name_index', 'month', 'day',
-                         'brave', 'faith', 'unlocked', 'unlocked_level',
-                         'job_index', 'palette']:
-                setattr(self, attr, test.old_data[attr])
-            for attr in ['head', 'body', 'accessory', 'righthand', 'lefthand',
-                         'secondary', 'reaction', 'support', 'movement']:
-                if random.choice([True, False]):
-                    setattr(self, attr, test.old_data[attr])
-            self.clear_gender()
-            self.set_bit(test.get_gender(), True)
+            self.become_another(test)
             return
 
         available_sprites = [s for s in self.entd.available_sprites
@@ -3206,6 +3219,25 @@ class UnitObject(TableObject):
                 self.unlocked = altima.unlocked
                 self.unlocked_level = altima.unlocked_level
 
+        if (self.entd_index in ENTDObject.WIEGRAF and
+                self.has_generic_sprite and
+                self.get_bit('enemy_team') and self.get_gender() == 'male'):
+            self.clear_gender()
+            self.set_bit('female', True)
+
+        if self.graphic in self.GENERIC_GRAPHICS:
+            if self.job.name == 'DANCER' and self.get_gender() == 'male':
+                self.clear_gender()
+                self.set_bit('female', True)
+            if self.job.name == 'BARD' and self.get_gender() == 'female':
+                if self.entd_index not in ENTDObject.WIEGRAF:
+                    self.clear_gender()
+                    self.set_bit('male', True)
+            if self.get_gender() == 'male':
+                self.graphic = self.MALE_GRAPHIC
+            if self.get_gender() == 'female':
+                self.graphic = self.FEMALE_GRAPHIC
+
 
 class ENTDObject(TableObject):
     flag = 'u'
@@ -3215,6 +3247,13 @@ class ENTDObject(TableObject):
         lange(0x31, 0x45) + lange(0x49, 0x51) + lange(0x52, 0xfd) +
         lange(0x180, 0x1d6))
     NAMED_GENERICS = {}
+
+    DEEP_DUNGEON = set(
+            lange(0xb1, 0xb5) + lange(0xc9, 0xcd) +
+            lange(0xd5, 0xd9) + lange(0xe1, 0xfd))
+    SPECIAL_CASE_SPRITES = {0x192, 0x1b0, 0x1b9, 0x1c9, 0x1cb} | DEEP_DUNGEON
+    WIEGRAF = {0x190, 0x1a8, 0x1b0}
+    VELIUS = 0x1b0
 
     @classproperty
     def after_order(self):
@@ -3300,15 +3339,21 @@ class ENTDObject(TableObject):
                 break
 
     def randomize_sprites(self):
-        special_units = [u for u in self.present_units
+        present_units = [u for u in self.present_units
+                         if not hasattr(u, '_target_sprite')]
+        preset_sprites = {u._target_sprite for u in self.units
+                          if hasattr(u, '_target_sprite')
+                          and isinstance(u._target_sprite, UnitObject)}
+        special_units = [u for u in present_units
                          if not u.has_generic_sprite]
         special_names = [u.character_name for u in special_units]
-        named_generics = [u for u in self.present_units
+        named_generics = [u for u in present_units
                           if u.has_unique_name and u.has_generic_sprite]
-        generic_units = [u for u in self.present_units
+        generic_units = [u for u in present_units
                          if u.has_generic_sprite and not u.has_unique_name]
 
-        new_sprites = {u.old_sprite_id for u in special_units}
+        new_sprites = {u.old_sprite_id for u in special_units
+                       if not hasattr(u, '_target_sprite')}
         available_sprites = set()
         temp_named = {}
         for u in named_generics:
@@ -3341,11 +3386,17 @@ class ENTDObject(TableObject):
             new_sprites.add(new_sprite)
 
         special_sprites = set()
-        while len(new_sprites | special_sprites) < len(self.old_sprites):
+        while (len(new_sprites | special_sprites | preset_sprites)
+                < len(self.old_sprites)):
+            if not generic_units:
+                break
             u = random.choice(generic_units)
             if (random.random() < self.random_degree
                     and random.choice([True, False])):
                 new_sprite = u.get_special_sprite()
+                if (self.index in self.WIEGRAF
+                        and new_sprite.get_gender() == 'male'):
+                    continue
                 if new_sprite.character_name not in special_names:
                     special_sprites.add(new_sprite)
             else:
@@ -3359,8 +3410,39 @@ class ENTDObject(TableObject):
         self.available_sprites += sorted(special_sprites,
                                          key=lambda u: u.index)
 
+    def randomize_special(self):
+        generic_units = [u for u in self.present_units
+                         if u.get_bit('enemy_team')
+                         and not u.job.has_unique_name]
+        candidates = [u for u in UnitObject.special_unit_pool
+                      if u.rank < self.rank or not u.job.is_lucavi]
+        if self.index == self.VELIUS:
+            candidates = [c for c in candidates
+                          if c.get_gender() == 'female']
+
+        sprite_ids = sorted({u.sprite_id for u in generic_units})
+        for sprite_id in sprite_ids:
+            if (self.index in self.DEEP_DUNGEON
+                    and random.choice([True, False])):
+                continue
+            matching_units = [u for u in self.present_units
+                              if u.sprite_id == sprite_id]
+            templates = [u for u in matching_units if u.rank >= 0]
+            if templates:
+                template = random.choice(templates)
+                chosen = template.get_similar(
+                    candidates=candidates,
+                    wide=True, override_outsider=True, presorted=True,
+                    random_degree=UnitObject.random_degree)
+            else:
+                chosen = random.choice(candidates)
+            for u in matching_units:
+                u._target_sprite = chosen
+
     def randomize(self):
         super().randomize()
+        if self.index in self.SPECIAL_CASE_SPRITES:
+            self.randomize_special()
         self.randomize_sprites()
         if EncounterObject.flag in get_flags():
             self.add_units()
