@@ -2343,8 +2343,8 @@ class UnitObject(TableObject):
     @clached_property
     def human_unit_pool(self):
         return [u for u in self.ranked if (u.is_present or u.is_important)
-                and u.old_data['graphic'] != self.MONSTER_GRAPHIC
-                and u.rank >= 0]
+                and u.entd.is_valid and u.rank >= 0
+                and u.old_data['graphic'] != self.MONSTER_GRAPHIC]
 
     @property
     def human_unit_pool_member(self):
@@ -2938,6 +2938,42 @@ class UnitObject(TableObject):
 
             setattr(self, attr, chosen.index)
 
+    def randomize_allegiance(self):
+        if self.human_unit_pool_member:
+            other = self.human_unit_pool_member.get_similar(
+                candidates=self.human_unit_pool, wide=True, presorted=True,
+                random_degree=EncounterObject.random_degree)
+        else:
+            other = random.choice(self.human_unit_pool)
+        if other.get_bit('enemy_team'):
+            self.set_bit('enemy_team', True)
+            self.set_bit('alternate_team', False)
+        else:
+            if (random.random() < self.random_degree ** 0.5
+                    and random.choice([True, False])):
+                self.set_bit('enemy_team', True)
+                self.set_bit('alternate_team', True)
+            else:
+                self.set_bit('enemy_team', False)
+                self.set_bit('alternate_team', False)
+
+    def fix_palette(self):
+        if self.graphic == self.MONSTER_GRAPHIC or not self.has_generic_sprite:
+            return
+        enemy_palettes = [
+            u.old_data['palette'] for u in self.neighbors if u.is_present and
+            u.has_generic_sprite and u.get_bit('enemy_team') and
+            u.old_data['graphic'] != self.MONSTER_GRAPHIC]
+        if self.get_bit('alternate_team'):
+            options = sorted(set(range(1, 4)) - set(enemy_palettes))
+            if not options:
+                options = lange(1, 4)
+            self.palette = random.choice(options)
+        elif self.get_bit('enemy_team'):
+            self.palette = random.choice(enemy_palettes)
+        else:
+            self.palette = 0
+
     def randomize(self):
         self.randomize_job()
         if not self.is_valid:
@@ -2949,6 +2985,7 @@ class UnitObject(TableObject):
         super().randomize()
 
     def preclean(self):
+        self.fix_palette()
         if self.is_important and self.map is not None:
             badness = self.map.get_tile_attribute(
                 self.x, self.y, 'bad_regardless',
@@ -3036,6 +3073,49 @@ class ENTDObject(TableObject):
     def old_sprites(self):
         return {u.old_sprite_id for u in self.units if u.is_present_old}
 
+    @cached_property
+    def encounter(self):
+        return self.units[0].encounter
+
+    def add_units(self):
+        if self.encounter is None or self.encounter.num_characters == 0:
+            return
+
+        templates = [u for u in self.present_units
+                     if u.has_generic_sprite and not u.has_unique_name]
+        if not templates:
+            return
+
+        spares = [u for u in self.units
+                  if not (u.is_present or u.is_important)]
+        while True:
+            margin = len(spares) - self.encounter.num_characters
+            if margin <= 0:
+                return
+            index = random.randint(0, margin)
+            if index == 0:
+                break
+
+            if random.random() < self.random_degree:
+                spare = spares.pop()
+                template = random.choice(templates)
+                for attr in template.old_data:
+                    template_value = template.old_data[attr]
+                    if (attr in ('head', 'body', 'accessory',
+                                 'lefthand', 'righthand', 'secondary')
+                            and template_value in (0, 0xff)):
+                        setattr(spare, attr, 0xfe)
+                    elif (attr in ('reaction', 'support', 'movement')
+                            and template_value in (0, 0x1ff)):
+                        setattr(spare, attr, 0x1fe)
+                    else:
+                        setattr(spare, attr, template_value)
+                spare.clear_cache()
+                spare.randomize_allegiance()
+                spare.find_appropriate_position()
+            else:
+                break
+
     def randomize_sprites(self):
         special_units = [u for u in self.present_units
                          if not u.has_generic_sprite]
@@ -3099,6 +3179,8 @@ class ENTDObject(TableObject):
     def randomize(self):
         super().randomize()
         self.randomize_sprites()
+        if EncounterObject.flag in get_flags():
+            self.add_units()
 
     def cleanup(self):
         assert len(self.sprites) <= max(len(self.old_sprites), 9)
