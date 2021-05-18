@@ -46,9 +46,13 @@ class MutateBoostMixin(TableObject):
 
 
 class AbilityObject(TableObject):
-    TELEPORT2 = 0x1f3
     CHARGE_20 = 0x164
     JUMPS = lange(0x18a, 0x196)
+    MP_SWITCH = 0x1bd
+    SHORT_CHARGE = 0x1e2
+    NON_CHARGE = 0x1e3
+    TELEPORT2 = 0x1f3
+    MP_RESTORE_INNATES = [0x1ee, 0x1b6, 0x1b0]
 
     @property
     def rank(self):
@@ -107,6 +111,10 @@ class AbilityObject(TableObject):
         if self.index == self.TELEPORT2:
             self.jp_cost = 9999
             self.old_data['jp_cost'] = self.jp_cost
+
+    @property
+    def restores_mp(self):
+        return self.index in self.MP_RESTORE_INNATES
 
 
 class AbilityAttributesObject(MutateBoostMixin):
@@ -204,14 +212,13 @@ class JobObject(TableObject):
     INVITE_STATUS =         0x0000004000
 
     BANNED_RSMS = [0x1bb, 0x1e1, 0x1e4, 0x1e5, 0x1f1]
-    MP_RESTORE_INNATES = [0x1ee, 0x1b6, 0x1b0]
     LUCAVI_INNATES = (lange(0x1a6, 0x1a9) + [0x1aa] + lange(0x1ac, 0x1b0)
                       + lange(0x1b1, 0x1b4) + [0x1b5, 0x1ba, 0x1bd, 0x1be]
                       + lange(0x1c0, 0x1c6)
                       + lange(0x1d1, 0x1d6) + [0x1d8, 0x1dd, 0x1e3]
                       + [0x1e7, 0x1e8]
                       + lange(0x1eb, 0x1ee) + [0x1f2, 0x1f3, 0x1fa, 0x1fb]
-                      ) + MP_RESTORE_INNATES
+                      ) + AbilityObject.MP_RESTORE_INNATES
 
     LUCAVI_ORDER = [0x43, 0x3c, 0x3e, 0x45, 0x40, 0x41, 0x97, 0x49]
     MONSTER_JOBS = lange(0x5e, 0x8e) + [0x90, 0x91, 0x96, 0x97, 0x99, 0x9a]
@@ -463,7 +470,50 @@ class JobObject(TableObject):
                 setattr(self, attr, 0xff)
 
     def randomize_innates(self):
-        if self.is_monster:
+        if self.is_lucavi:
+            all_supports = [i for i in AbilityObject.support_pool
+                            if i.index in self.LUCAVI_INNATES
+                            and i.index != AbilityObject.SHORT_CHARGE]
+            all_reactions = [i for i in AbilityObject.reaction_pool
+                             if i.index in self.LUCAVI_INNATES]
+            all_movements = [i for i in AbilityObject.movement_pool
+                             if i.index in self.LUCAVI_INNATES]
+            num_reactions = 1 + random.randint(0, 1) + random.randint(0, 1)
+            num_movements = 1
+            num_supports = 7 - (num_reactions + num_movements)
+
+            mp_switch = AbilityObject.get(AbilityObject.MP_SWITCH)
+            while True:
+                reactions = random.sample(all_reactions, num_reactions)
+                if (any([r.restores_mp for r in reactions])
+                        and mp_switch not in reactions):
+                    continue
+                break
+            assert len(set(reactions)) == num_reactions
+
+            non_charge = AbilityObject.get(AbilityObject.NON_CHARGE)
+            short_charge = AbilityObject.get(AbilityObject.SHORT_CHARGE)
+            supports = random.sample(all_supports, num_supports)
+            assert len(set(supports)) == num_supports
+            if not set(supports) & {non_charge, short_charge}:
+                supports[-1] = short_charge
+            supports = sorted(
+                supports, key=lambda s: (s in (short_charge, non_charge),
+                                         supports.index(s)))
+            assert supports[-1] in (short_charge, non_charge)
+
+            while True:
+                movement = random.choice(all_movements)
+                if mp_switch in reactions or not movement.restores_mp:
+                    break
+
+            self._fixed_unit_reaction = reactions.pop().index
+            self._fixed_unit_support = supports.pop().index
+            self._fixed_unit_movement = movement.index
+            assert len(supports + reactions) == 4
+            self.innates = [i.index for i in supports + reactions]
+
+        elif self.is_monster:
             innates = [AbilityObject.get(i) for i in self.innates if i > 0]
             old_supports = [i for i in innates if i.is_support]
             old_reactions = [i for i in innates if i.is_reaction]
@@ -480,6 +530,7 @@ class JobObject(TableObject):
             new_innates.insert(2, new_reaction)
             assert len(new_innates) == 4
             self.innates = [ni.index for ni in new_innates]
+
         elif not self.is_lucavi:
             for i, innate in enumerate(self.innates):
                 if innate != 0 and random.random() > self.random_degree ** 2:
@@ -511,6 +562,21 @@ class JobObject(TableObject):
                     else:
                         r.equips &= self.equips
                     assert self.equips & r.equips == r.equips
+
+        if self.is_lucavi:
+            self.immune_status &= (((2**40)-1) ^ self.BENEFICIAL_STATUSES)
+            if random.choice([True, False]):
+                self.immune_status |= self.FAITH_STATUS
+            if random.choice([True, False]):
+                self.immune_status |= self.INNOCENT_STATUS
+            for i in range(40):
+                if random.random() > self.random_degree:
+                    self.immune_status |= (
+                        self.old_data['immune_status'] & (1 << i))
+            if (random.random() > self.random_degree ** 2
+                    or random.choice([True, False])):
+                self.innate_status &= self.BENEFICIAL_STATUSES
+                self.start_status &= self.BENEFICIAL_STATUSES
 
     def cleanup(self):
         if not self.is_canonical:
@@ -2316,7 +2382,7 @@ class UnitObject(TableObject):
 
     @classproperty
     def after_order(self):
-        return [GNSObject, ENTDObject, SkillsetObject, JobReqObject]
+        return [GNSObject, ENTDObject, SkillsetObject, JobReqObject, JobObject]
 
     @cached_property
     def entd_index(self):
@@ -3012,6 +3078,10 @@ class UnitObject(TableObject):
         for attr in ['reaction', 'support', 'movement']:
             if getattr(self, attr) in JobObject.BANNED_RSMS:
                 setattr(self, attr, 0x1fe)
+
+            fixed_attr = '_fixed_unit_%s' % attr
+            if hasattr(self.job, fixed_attr):
+                setattr(self, attr, getattr(self.job, fixed_attr))
 
         if self.get_bit('always_present'):
             for u in self.neighbors:
