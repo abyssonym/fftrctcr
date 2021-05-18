@@ -81,7 +81,8 @@ class AbilityObject(TableObject):
 
     @property
     def is_action(self):
-        return (self.index <= self.CHARGE_20 and self.index not in self.JUMPS
+        return (1 <= self.index <= self.CHARGE_20
+                and self.index not in self.JUMPS
                 and self.ability_type not in (7, 8, 9))
 
     @clached_property
@@ -202,6 +203,9 @@ class JobObject(TableObject):
     SQUIRE_INDEX = 0x4a
     MIME_INDEX = 0x5d
 
+    ALTIMA_NICE_BODY = 0x41
+    ALTIMA_PERFECT_BODY = 0x49
+
     VALID_INNATE_STATUSES = 0xcafce12a10
     VALID_START_STATUSES = (VALID_INNATE_STATUSES |
                             0x1402100000)
@@ -321,6 +325,10 @@ class JobObject(TableObject):
     @property
     def is_lucavi(self):
         return self.index in self.LUCAVI_ORDER
+
+    @property
+    def is_altima(self):
+        return self.index in {self.ALTIMA_NICE_BODY, self.ALTIMA_PERFECT_BODY}
 
     @property
     def is_special(self):
@@ -468,6 +476,11 @@ class JobObject(TableObject):
         for attr in self.old_data:
             if attr.endswith('growth') and self.old_data[attr] == 0:
                 setattr(self, attr, 0xff)
+
+        if (self.index == JobObject.ALTIMA_NICE_BODY
+                and self.old_data['skillset_index'] == 0x59):
+            self.old_data['skillset_index'] = 0x7b
+            self.skillset_index = 0x7b
 
     def randomize_innates(self):
         if self.is_lucavi:
@@ -857,7 +870,8 @@ class SkillsetObject(TableObject):
     flag_description = 'job skillsets'
 
     BANNED_SKILLS = set([0x28, 0x2d, 0xdb, 0xdc] + lange(0x165, 0x16f))
-    MATH_SKILLETS = {0xa, 0xb, 0xc, 0x10}
+    MATH_SKILLSETS = {0xa, 0xb, 0xc, 0x10}
+    MATH = 0x15
     BANNED_ANYTHING = {0x18}  # mimic
     BANNED_SKILLSET_SHUFFLE = {0, 1, 2, 3, 6, 8, 0x11, 0x12, 0x13, 0x14, 0x15,
                                0x18, 0x34, 0x38, 0x39, 0x3b, 0x3e, 0x9c, 0xa1
@@ -880,6 +894,12 @@ class SkillsetObject(TableObject):
     @property
     def is_generic(self):
         return 5 <= self.index <= 0x18
+
+    @cached_property
+    def is_altima_secondary(self):
+        seconds = [u.old_data['secondary'] for u in ENTDObject.get(0x1b9).units
+                   if u.old_job.is_altima]
+        return self.index in seconds
 
     def get_actions(self, old=False):
         if old:
@@ -953,6 +973,21 @@ class SkillsetObject(TableObject):
             rsmbytes.append(rsm & 0xff)
         self.rsmbytes = rsmbytes
         self.rsmbits = rsmbits
+
+    def absorb_skills(self, other, old=True):
+        actions = [i for i in self.action_indexes if i > 0]
+        if old:
+            other_actions = other.old_action_indexes
+        else:
+            other_actions = other.action_indexes
+        for i in other_actions:
+            if i > 0 and i not in actions:
+                actions.append(i)
+
+        if len(actions) > 16:
+            temp = random.sample(actions, 16)
+            actions = [i for i in actions if i in temp]
+        self.set_actions(actions)
 
     @classmethod
     def intershuffle(self):
@@ -1080,8 +1115,12 @@ class SkillsetObject(TableObject):
             assert self.get(0x19).skills_are_subset_of(self.get(0x1a))
             assert self.get(0x1a).skills_are_subset_of(self.get(0x1b))
 
-
     def randomize(self):
+        if self.is_altima_secondary and self.random_difficulty >= 1:
+            actions = random.sample(AbilityObject.action_pool, 16)
+            self.set_actions([a.index for a in actions])
+            return
+
         if hasattr(self, 'preshuffled') and self.preshuffled:
             exponent = 3.5
         else:
@@ -1336,6 +1375,29 @@ class JobReqObject(TableObject):
             if self.get_req(name):
                 return False
         return True
+
+    @property
+    def calculator_potential(self):
+        if self.name == 'cal':
+            cal_potential = JobJPReqObject.get(7).jp
+        else:
+            cal_req = self.get_req('cal')
+            if cal_req > 0:
+                cal_potential = JobJPReqObject.get(cal_req-1).jp
+            else:
+                return 0
+
+        if self.name in self.CALC_REQS:
+            mage_potential = JobJPReqObject.get(7).jp
+        else:
+            mage_potential = 0
+
+        for name in self.get_recursive_reqs():
+            req = self.get_req(name)
+            if name in self.CALC_REQS and name != self.name and req > 0:
+                mage_potential += JobJPReqObject.get(req-1).jp
+
+        return cal_potential * mage_potential
 
     def get_jp_total(self, old=False):
         if old and hasattr(self, '_old_jp'):
@@ -2886,6 +2948,42 @@ class UnitObject(TableObject):
         if self.job.is_monster:
             return
 
+        difficulty = self.random_difficulty
+        if self.job.is_lucavi:
+            if self.job.index == JobObject.ALTIMA_PERFECT_BODY:
+                old = False
+            else:
+                old = True
+            self.job.skillset.absorb_skills(
+                SkillsetObject.get(self.job.skillset.index + 1), old=old)
+            if not (self.job.is_altima and difficulty >= 1):
+                self.secondary = 0xfe
+
+        if (self.job.index == JobObject.ALTIMA_PERFECT_BODY
+                and difficulty >= 1):
+            candidates = [j for j in JobReqObject.every
+                          if j.calculator_potential > 0]
+            candidates = sorted(
+                candidates,
+                key=lambda j: (j.calculator_potential, j.signature))
+            max_index = len(candidates)-1
+            if difficulty == 1:
+                index = random.randint(0, max_index)
+            else:
+                index = max_index
+            self.unlocked = (candidates[index].job_index
+                             - JobObject.SQUIRE_INDEX)
+
+            max_level = 8
+            ratio = difficulty / (difficulty + 1)
+            ratio = mutate_normal(ratio, 0, 1, wide=True,
+                                  random_degree=self.random_degree)
+            level = int(round(ratio * max_level))
+
+            self.unlocked_level = level
+            self.secondary = SkillsetObject.MATH
+            return
+
         generic_jobs = [
             JobObject.get_by_name(name) for name in JobObject.GENERIC_NAMES
             if name.lower()[:3] != 'squ']
@@ -3036,7 +3134,10 @@ class UnitObject(TableObject):
                 options = lange(1, 4)
             self.palette = random.choice(options)
         elif self.get_bit('enemy_team'):
-            self.palette = random.choice(enemy_palettes)
+            if enemy_palettes:
+                self.palette = random.choice(enemy_palettes)
+            else:
+                self.palette = 3
         else:
             self.palette = 0
 
@@ -3092,6 +3193,18 @@ class UnitObject(TableObject):
         if self.is_important and self.encounter is not None:
             assert 0 <= self.x < self.map.width
             assert 0 <= self.y < self.map.length
+
+        assert (0 <= self.unlocked <=
+                JobObject.MIME_INDEX - JobObject.SQUIRE_INDEX)
+
+        if (self.character_name == 'Alma'
+                and self.graphic == self.old_data['graphic']):
+            altima = [u for u in ENTDObject.get(0x1b9).units
+                      if u.job.index == JobObject.ALTIMA_PERFECT_BODY][0]
+            if SkillsetObject.get(altima.secondary).is_generic:
+                self.secondary = altima.secondary
+                self.unlocked = altima.unlocked
+                self.unlocked_level = altima.unlocked_level
 
 
 class ENTDObject(TableObject):
