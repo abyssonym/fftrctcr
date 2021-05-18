@@ -4,7 +4,7 @@ from randomtools.tablereader import (
     get_random_degree, get_difficulty, write_patch,
     SANDBOX_PATH)
 from randomtools.utils import (
-    classproperty, cached_property, utilrandom as random)
+    classproperty, cached_property, clached_property, utilrandom as random)
 from randomtools.interface import (
     run_interface, clean_and_write, finish_interface,
     get_activated_codes, get_flags, get_outfile,
@@ -80,45 +80,28 @@ class AbilityObject(TableObject):
         return (self.index <= self.CHARGE_20 and self.index not in self.JUMPS
                 and self.ability_type not in (7, 8, 9))
 
-    @classproperty
+    @clached_property
     def action_pool(self):
-        if hasattr(AbilityObject, '_action_pool'):
-            return AbilityObject._action_pool
-        AbilityObject._action_pool = [a for a in AbilityObject.ranked
-                                      if a.is_action and a.rank >= 0]
-        return AbilityObject.action_pool
+        return [a for a in AbilityObject.ranked if a.is_action and a.rank >= 0]
 
-    @classproperty
+    @clached_property
     def reaction_pool(self):
-        if hasattr(AbilityObject, '_reaction_pool'):
-            return AbilityObject._reaction_pool
-        AbilityObject._reaction_pool = [a for a in AbilityObject.ranked
-                                        if a.is_reaction and a.rank >= 0]
-        return AbilityObject.reaction_pool
+        return [a for a in AbilityObject.ranked
+                if a.is_reaction and a.rank >= 0]
 
-    @classproperty
+    @clached_property
     def support_pool(self):
-        if hasattr(AbilityObject, '_support_pool'):
-            return AbilityObject._support_pool
-        AbilityObject._support_pool = [a for a in AbilityObject.ranked
-                                       if a.is_support and a.rank >= 0]
-        return AbilityObject.support_pool
+        return [a for a in AbilityObject.ranked
+                if a.is_support and a.rank >= 0]
 
-    @classproperty
+    @clached_property
     def movement_pool(self):
-        if hasattr(AbilityObject, '_movement_pool'):
-            return AbilityObject._movement_pool
-        AbilityObject._movement_pool = [a for a in AbilityObject.ranked
-                                        if a.is_movement and a.rank >= 0]
-        return AbilityObject.movement_pool
+        return [a for a in AbilityObject.ranked
+                if a.is_movement and a.rank >= 0]
 
-    @classproperty
+    @clached_property
     def passive_pool(self):
-        if hasattr(AbilityObject, '_passive_pool'):
-            return AbilityObject._passive_pool
-        AbilityObject._passive_pool = (self.reaction_pool + self.support_pool
-                                       + self.movement_pool)
-        return AbilityObject.passive_pool
+        return (self.reaction_pool + self.support_pool + self.movement_pool)
 
     def preprocess(self):
         if self.index == self.TELEPORT2:
@@ -268,10 +251,9 @@ class JobObject(TableObject):
         ('absorb_elem', 'nullify_elem', 'resist_elem', 'weak_elem'): (0xff,)*4,
         }
 
-    @classproperty
+    @clached_property
     def character_jobs(self):
-        if hasattr(JobObject, '_character_jobs'):
-            return JobObject._character_jobs
+        from collections import OrderedDict
 
         character_jobs = defaultdict(set)
         for u in UnitObject.every:
@@ -280,13 +262,13 @@ class JobObject(TableObject):
             if u.has_unique_name:
                 character_jobs[u.character_name].add(u.old_data['job_index'])
 
-        JobObject._character_jobs = {}
+        JobObject._character_jobs = OrderedDict()
         for name in character_jobs:
             JobObject._character_jobs[name] = [
                 JobObject.get(j) for j in sorted(character_jobs[name])
                 if JobObject.get(j).is_special]
 
-        return JobObject.character_jobs
+        return JobObject._character_jobs
 
     @cached_property
     def character_name(self):
@@ -316,7 +298,7 @@ class JobObject(TableObject):
             return temp[0]
         return self.relatives[0]
 
-    @property
+    @cached_property
     def is_canonical(self):
         return self.canonical_relative is self
 
@@ -337,12 +319,12 @@ class JobObject(TableObject):
     def is_special(self):
         return self.is_lucavi or not (self.is_generic or self.is_monster)
 
-    @property
+    @cached_property
     def is_recruitable(self):
         return self.is_generic or (self.is_canonical and self.character_name in
                                    self.STORYLINE_RECRUITABLE_NAMES)
 
-    @property
+    @cached_property
     def intershuffle_group(self):
         if not self.intershuffle_valid:
             return -1
@@ -363,7 +345,7 @@ class JobObject(TableObject):
                 return True
         return False
 
-    @property
+    @cached_property
     def intershuffle_valid(self):
         if self.rank < 0:
             return False
@@ -388,7 +370,7 @@ class JobObject(TableObject):
     def rsms(self):
         return self.skillset.rsms
 
-    @property
+    @cached_property
     def jobreq(self):
         if not self.is_generic:
             return None
@@ -439,16 +421,10 @@ class JobObject(TableObject):
 
         return self.rank
 
-    @classproperty
+    @clached_property
     def ranked_monsters(self):
-        if hasattr(JobObject, '_ranked_monsters'):
-            return JobObject._ranked_monsters
-
-        ranked_monsters = [j for j in JobObject.ranked
-                           if j.intershuffle_group == JobObject.GROUP_MONSTER]
-        self._ranked_monsters = ranked_monsters
-
-        return self.ranked_monsters
+        return [j for j in JobObject.ranked
+                if j.intershuffle_group == JobObject.GROUP_MONSTER]
 
     @property
     def name(self):
@@ -584,7 +560,7 @@ class ItemObject(MutateBoostMixin):
         'enemy_level': (1, 99),
         }
 
-    @property
+    @cached_property
     def rank(self):
         if self.index == 0:
             return -1
@@ -598,6 +574,10 @@ class ItemObject(MutateBoostMixin):
     @property
     def intershuffle_valid(self):
         return self.rank >= 0
+
+    @property
+    def is_equipment(self):
+        return self.misc1 & 0xf8
 
     @property
     def equip_flag(self):
@@ -1147,15 +1127,10 @@ class MonsterSkillsObject(TableObject):
         return [m for m in MonsterSkillsObject.every
                 if m.monster_type == self.monster_type]
 
-    @classproperty
+    @clached_property
     def monster_skill_pool(self):
-        if hasattr(MonsterSkillsObject, '_monster_skill_pool'):
-            return MonsterSkillsObject._monster_skill_pool
-
-        pool = sorted({i for m in MonsterSkillsObject.every
+        return sorted({i for m in MonsterSkillsObject.every
                        for i in m.old_skill_indexes})
-        MonsterSkillsObject._monster_skill_pool = pool
-        return MonsterSkillsObject.monster_skill_pool
 
     def randomize(self):
         family_skill_pool = sorted({i for m in self.family
@@ -1523,10 +1498,11 @@ class JobJPReqObject(TableObject): pass
 class MoveFindObject(TableObject):
     flag = 't'
     done_locations = {}
+    valid_locations = {}
 
     @classproperty
     def after_order(self):
-        return [MeshObject]
+        return [MeshObject, EncounterObject, ENTDObject]
 
     @property
     def map_index(self):
@@ -1556,7 +1532,7 @@ class MoveFindObject(TableObject):
     def set_coordinates(self, x, y):
         self.coordinates = (x << 4) | y
 
-    def mutate(self):
+    def randomize(self):
         if self.map is None:
             return
 
@@ -1564,9 +1540,14 @@ class MoveFindObject(TableObject):
             MoveFindObject.done_locations[self.map_index] = set()
 
         if random.random() < self.random_degree ** 0.5:
-            valid_locations = self.map.get_tiles_compare_attribute(
-                'bad', False)
-            valid_locations = [l for l in valid_locations if l not in
+            if self.map_index in MoveFindObject.valid_locations:
+                valid = MoveFindObject.valid_locations[self.map_index]
+            else:
+                valid = self.map.get_tiles_compare_attribute(
+                    'bad', False)
+                MoveFindObject.valid_locations[self.map_index] = valid
+
+            valid_locations = [l for l in valid if l not in
                                MoveFindObject.done_locations[self.map_index]]
             new_location = random.choice(valid_locations)
             self.set_coordinates(*new_location)
@@ -1608,7 +1589,7 @@ class FormationObject(TableObject):
         # 3: first bit in NW corner
         return self.orientation & 0xf
 
-    @property
+    @cached_property
     def encounters(self):
         return [e for e in EncounterObject.every if self in e.formations]
 
@@ -1795,7 +1776,7 @@ class EncounterObject(TableObject):
         return {u: (x, y) for (u, x, y) in
                 self.map_movements[self.old_data['map_index']]}
 
-    @property
+    @cached_property
     def formations(self):
         return [FormationObject.get(f) for f in self.formation_indexes if f]
 
@@ -1820,6 +1801,10 @@ class EncounterObject(TableObject):
         f1 = f1.index
         f2 = f2.index if f2 else f2
         self.formation_indexes = [f1, f2]
+        self.clear_cache()
+        for f in self.old_data['formation_indexes']:
+            f = FormationObject.get(f)
+            f.clear_cache()
 
     def set_occupied(self):
         for u, (x, y) in self.movements.items():
@@ -1840,6 +1825,7 @@ class EncounterObject(TableObject):
         if self.index == 0x1b2 and self.formation_indexes == [232, 324]:
             self.formation_indexes = [323, 324]
             self.old_data['formation_indexes'] = self.formation_indexes
+            self.clear_cache()
 
     def replace_map(self):
         if not self.is_replaceable:
@@ -1907,13 +1893,15 @@ class EncounterObject(TableObject):
         for attr in self.old_data:
             if self.old_data[attr] == self.canonical_relative.old_data[attr]:
                 setattr(self, attr, getattr(self.canonical_relative, attr))
-
-        for f in self.formations:
-            assert f.map_index == self.map_index
+        if not self.is_canonical:
+            self.clear_cache()
 
         old_spritecount = len(self.entd.old_sprites) + self.num_characters
         new_spritecount = len(self.entd.sprites) + self.num_characters
         assert new_spritecount <= max(old_spritecount, 9)
+
+        for f in self.formations:
+            assert f.map_index == self.map_index
 
 
 class MapMixin(TableObject):
@@ -1929,9 +1917,19 @@ class MapMixin(TableObject):
 
     @classmethod
     def get_by_map_index(self, map_index):
+        if not hasattr(self, '_map_index_cache'):
+            self._map_index_cache = {}
+        if map_index in self._map_index_cache:
+            return self._map_index_cache[map_index]
+
         result = [m for m in self.every if m.map_index == map_index]
         if len(result) == 1:
-            return result[0]
+            result = result[0]
+        else:
+            result = None
+
+        self._map_index_cache[map_index] = result
+        return self.get_by_map_index(map_index)
 
     @classmethod
     def get_all_by_map_index(self, map_index):
@@ -1948,10 +1946,8 @@ class MapMixin(TableObject):
             print('WARNING: {0} contains unmodified data.'.format(filename))
         else:
             self.data = data
-            if hasattr(self, '_property_cache'):
-                del(self._property_cache)
-            if hasattr(self.gns, '_property_cache'):
-                del(self.gns._property_cache)
+            self.clear_cache()
+            self.gns.clear_cache()
             self._loaded_from = filename
 
         for e in EncounterObject.every:
@@ -2040,21 +2036,39 @@ class GNSObject(MapMixin):
         coordinates = set()
         for y in range(length):
             for x in range(width):
-                values = {getattr(m.get_tile(x, y, upper=upper), attribute)
-                          for m in self.primary_meshes
-                          if x < m.width and y < m.length}
+                values = self.get_tile_attribute(x, y, attribute, upper)
                 if all(compare_function(v, value) for v in values):
                     coordinates.add((x, y))
         return sorted(coordinates)
 
-    def get_tile_attribute(self, x, y, attribute, upper=False):
+    def get_tile_attribute(self, x, y, attribute,
+                           upper=False, singleton=False):
+        if not hasattr(self, '_tile_cache'):
+            self._tile_cache = {}
+
+        key = (x, y, attribute, upper)
+        if key in self._tile_cache:
+            values = self._tile_cache[key]
+            if singleton:
+                values = list(values)[0] if len(values) == 1 else values
+            return values
+
         values = {getattr(m.get_tile(x, y, upper=upper), attribute)
                   for m in self.primary_meshes if x < m.width and y < m.length}
-        if len(values) == 1:
-            return list(values)[0]
-        return values
+        self._tile_cache[key] = values
+
+        return self.get_tile_attribute(x, y, attribute, upper, singleton)
 
     def set_occupied(self, x, y):
+        if not hasattr(self, '_tile_cache'):
+            self._tile_cache = {}
+
+        for attribute in ['occupied', 'bad', 'party', 'enemy']:
+            for upper in [True, False]:
+                key = (x, y, attribute, upper)
+                if key in self._tile_cache:
+                    del(self._tile_cache[key])
+
         for m in self.primary_meshes:
             try:
                 t = m.get_tile(x, y)
@@ -2180,6 +2194,10 @@ class GNSObject(MapMixin):
         s += 'Y = 0'
         return s.strip()
 
+    def cleanup(self):
+        if hasattr(self, '_tile_cache'):
+            del(self._tile_cache)
+
 
 class MeshObject(MapMixin):
     @classproperty
@@ -2239,17 +2257,17 @@ class MeshObject(MapMixin):
         if len(gnss) == 1:
             return gnss[0]
 
-    @property
+    @cached_property
     def terrain_addr(self):
         addr = int.from_bytes(self.data[0x68:0x68+4], byteorder='little')
         # TODO: addr >= 0xb4???
         return addr
 
-    @property
+    @cached_property
     def width(self):
         return self.data[self.terrain_addr]
 
-    @property
+    @cached_property
     def length(self):
         return self.data[self.terrain_addr+1]
 
@@ -2269,13 +2287,10 @@ class MeshObject(MapMixin):
                 for i in range(self.width * self.length)]
 
     def get_tile(self, x, y, upper=False):
-        index = (y * self.width) + x
         if upper:
-            tile = self.upper[index]
+            return self.upper[(y * self.width) + x]
         else:
-            tile = self.tiles[index]
-        assert (tile.x, tile.y) == (x, y)
-        return tile
+            return self.tiles[(y * self.width) + x]
 
     def get_tiles_compare_attribute(self, *args, **kwargs):
         return self.gns.get_tiles_compare_attribute(*args, **kwargs)
@@ -2301,7 +2316,7 @@ class UnitObject(TableObject):
 
     @classproperty
     def after_order(self):
-        return [ENTDObject, SkillsetObject, JobReqObject]
+        return [GNSObject, ENTDObject, SkillsetObject, JobReqObject]
 
     @cached_property
     def entd_index(self):
@@ -2325,17 +2340,11 @@ class UnitObject(TableObject):
             return self.entd.avg_level
         return -1
 
-    @classproperty
+    @clached_property
     def human_unit_pool(self):
-        if hasattr(UnitObject, '_human_unit_pool'):
-            return UnitObject._human_unit_pool
-
-        units = [u for u in self.ranked if (u.is_present or u.is_important)
-                 and u.old_data['graphic'] != self.MONSTER_GRAPHIC
-                 and u.rank >= 0]
-        UnitObject._human_unit_pool = units
-
-        return self.human_unit_pool
+        return [u for u in self.ranked if (u.is_present or u.is_important)
+                and u.old_data['graphic'] != self.MONSTER_GRAPHIC
+                and u.rank >= 0]
 
     @property
     def human_unit_pool_member(self):
@@ -2359,11 +2368,15 @@ class UnitObject(TableObject):
 
         return self.human_unit_pool_member
 
-    @classproperty
-    def all_used_skillsets(self):
-        if hasattr(UnitObject, '_all_used_skillsets'):
-            return UnitObject._all_used_skillsets
+    @clached_property
+    def special_unit_pool(self):
+        return [u for u in self.ranked if u.is_valid and u.rank >= 0
+                and not (u.old_job.is_generic or u.old_job.is_monster)
+                and u.old_job.old_data['skillset_index'] > 0
+                and u.get_gender() is not None]
 
+    @clached_property
+    def all_used_skillsets(self):
         max_index = len(SkillsetObject.every)-1
         pool = {u.old_data['secondary'] for u in UnitObject.every
                 if u.is_valid}
@@ -2372,9 +2385,7 @@ class UnitObject(TableObject):
         pool = [SkillsetObject.get(i) for i in sorted(pool)
                 if 5 <= i <= max_index]
         pool = [p for p in pool if set(p.old_action_indexes) != {0}]
-        self._all_used_skillsets = pool
-
-        return UnitObject.all_used_skillsets
+        return pool
 
     @property
     def neighbors(self):
@@ -2497,6 +2508,20 @@ class UnitObject(TableObject):
             gender = random.choice(UnitObject.GENERIC_GRAPHICS)
             return gender, chosen
 
+    def get_special_sprite(self):
+        if self.rank >= 0:
+            unit = self
+        else:
+            max_index = len(self.special_unit_pool) - 1
+            index = int(round(self.job.ranked_ratio * max_index))
+            unit = self.special_unit_pool[index]
+
+        chosen = unit.get_similar(
+            candidates=self.special_unit_pool, override_outsider=True,
+            wide=True, presorted=True, random_degree=UnitObject.random_degree)
+        assert chosen in self.special_unit_pool
+        return chosen
+
     @property
     def job(self):
         return JobObject.get(self.job_index)
@@ -2514,13 +2539,13 @@ class UnitObject(TableObject):
         return not (
             self.get_bit('enemy_team') or self.get_bit('alternate_team'))
 
-    @property
+    @cached_property
     def is_present(self):
         return (
             self.get_bit('randomly_present') or self.get_bit('always_present')
             or self.unit_id != 0xff)
 
-    @property
+    @cached_property
     def is_present_old(self):
         return (
             self.get_bit('randomly_present', old=True)
@@ -2588,7 +2613,7 @@ class UnitObject(TableObject):
         self.y = y
         self.set_upper(False)
         if not self.map.get_tile_attribute(self.x, self.y, 'bad_regardless',
-                                           upper=True):
+                                           upper=True, singleton=True):
             if random.choice([True, True, False]):
                 self.set_upper(True)
 
@@ -2658,11 +2683,34 @@ class UnitObject(TableObject):
         neighbors = [u for u in self.neighbors
                      if u.is_present_old and u.has_generic_sprite_old]
 
+        for _ in range(10):
+            test = random.choice(self.entd.available_sprites)
+            if (isinstance(test, UnitObject)
+                    and random.random() > self.random_degree ** 0.5):
+                continue
+            break
+
+        if isinstance(test, UnitObject):
+            for attr in ['graphic', 'name_index', 'month', 'day',
+                         'brave', 'faith', 'unlocked', 'unlocked_level',
+                         'job_index', 'palette']:
+                setattr(self, attr, test.old_data[attr])
+            for attr in ['head', 'body', 'accessory', 'righthand', 'lefthand',
+                         'secondary', 'reaction', 'support', 'movement']:
+                if random.choice([True, False]):
+                    setattr(self, attr, test.old_data[attr])
+            self.clear_gender()
+            self.set_bit(test.get_gender(), True)
+            return
+
+        available_sprites = [s for s in self.entd.available_sprites
+                             if not isinstance(s, UnitObject)]
+
         while True:
             template = random.choice(neighbors)
             tg, tj = template.old_sprite_id
             candidates = [
-                (g, j) for (g, j) in self.entd.available_sprites
+                (g, j) for (g, j) in available_sprites
                 if (g == self.MONSTER_GRAPHIC) == (tg == self.MONSTER_GRAPHIC)]
             if candidates:
                 break
@@ -2675,10 +2723,9 @@ class UnitObject(TableObject):
             elif self.graphic == self.FEMALE_GRAPHIC:
                 self.set_bit('female', True)
             else:
-                import pdb; pdb.set_trace()
-                raise NotImplementedError
+                raise Exception('Sprite leak.')
         elif tg == self.MONSTER_GRAPHIC:
-            mgraphics = [j for (g, j) in self.entd.available_sprites
+            mgraphics = [j for (g, j) in available_sprites
                          if g == self.MONSTER_GRAPHIC]
             candidates = [j for j in JobObject.every
                           if j.is_monster and j.monster_portrait in mgraphics
@@ -2722,7 +2769,8 @@ class UnitObject(TableObject):
                 if test is None:
                     continue
 
-            candidates = [c for c in ItemObject.ranked if c.intershuffle_valid]
+            candidates = [c for c in ItemObject.ranked if c.intershuffle_valid
+                          and c.is_equipment]
             if equip in ['righthand', 'lefthand']:
                 candidates = [c for c in candidates if
                               c.get_bit('weapon') or c.get_bit('shield')]
@@ -2903,7 +2951,8 @@ class UnitObject(TableObject):
     def preclean(self):
         if self.is_important and self.map is not None:
             badness = self.map.get_tile_attribute(
-                self.x, self.y, 'bad_regardless', upper=self.is_upper)
+                self.x, self.y, 'bad_regardless',
+                upper=self.is_upper, singleton=True)
             try:
                 assert badness is not True
                 if badness is not False:
@@ -2990,6 +3039,7 @@ class ENTDObject(TableObject):
     def randomize_sprites(self):
         special_units = [u for u in self.present_units
                          if not u.has_generic_sprite]
+        special_names = [u.character_name for u in special_units]
         named_generics = [u for u in self.present_units
                           if u.has_unique_name and u.has_generic_sprite]
         generic_units = [u for u in self.present_units
@@ -3027,17 +3077,24 @@ class ENTDObject(TableObject):
             assert self.NAMED_GENERICS[key] == new_sprite
             new_sprites.add(new_sprite)
 
-        while len(new_sprites) < len(self.old_sprites):
+        special_sprites = set()
+        while len(new_sprites | special_sprites) < len(self.old_sprites):
             u = random.choice(generic_units)
-            new_sprite = u.get_similar_sprite(exclude_sprites=new_sprites)
-            assert new_sprite not in new_sprites
-            available_sprites.add(new_sprite)
-            new_sprites |= available_sprites
+            if (random.random() < self.random_degree
+                    and random.choice([True, False])):
+                new_sprite = u.get_special_sprite()
+                if new_sprite.character_name not in special_names:
+                    special_sprites.add(new_sprite)
+            else:
+                new_sprite = u.get_similar_sprite(exclude_sprites=new_sprites)
+                available_sprites.add(new_sprite)
+                assert new_sprite not in new_sprites
+                new_sprites.add(new_sprite)
 
-        assert not hasattr(self, 'new_sprites')
         assert not hasattr(self, 'available_sprites')
-        self.new_sprites = sorted(new_sprites)
         self.available_sprites = sorted(available_sprites)
+        self.available_sprites += sorted(special_sprites,
+                                         key=lambda u: u.index)
 
     def randomize(self):
         super().randomize()
