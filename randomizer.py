@@ -4,7 +4,8 @@ from randomtools.tablereader import (
     get_random_degree, get_difficulty, write_patch,
     SANDBOX_PATH)
 from randomtools.utils import (
-    classproperty, cached_property, clached_property, utilrandom as random)
+    classproperty, cached_property, clached_property,
+    read_lines_nocomment, utilrandom as random)
 from randomtools.interface import (
     run_interface, clean_and_write, finish_interface,
     get_activated_codes, get_flags, get_outfile,
@@ -1907,6 +1908,10 @@ class EncounterObject(TableObject):
         return GNSObject.get_by_map_index(self.map_index)
 
     @property
+    def conditional(self):
+        return BattleConditionalObject.get(self.conditional_index)
+
+    @property
     def movements(self):
         return {u: (x, y) for (u, x, y) in
                 self.map_movements[self.old_data['map_index']]}
@@ -2037,6 +2042,297 @@ class EncounterObject(TableObject):
 
         for f in self.formations:
             assert f.map_index == self.map_index
+
+
+class BattleConditionalObject(TableObject):
+    BASE_POINTER = 0x14938
+    END_ADDRESS = 0x16af4
+
+    NUM_PARAMETERS = {
+        0x01: 2,
+        0x02: 2,
+        0x03: 2,
+        0x04: 1,
+        0x05: 2,
+        0x06: 2,
+        0x07: 2,
+        0x08: 2,
+        0x09: 2,
+        0x0a: 2,
+        0x0b: 1,
+        0x0d: 1,
+        0x0e: 2,
+        0x0f: 2,
+        0x10: 3,
+        0x11: 3,
+        0x12: 2,
+        0x13: 2,
+        0x16: 0,
+        0x18: 4,
+        0x19: 1,
+        0x25: 4,
+        }
+
+    @property
+    def successor(self):
+        return self.get(self.index + 1)
+
+    @classmethod
+    def get_instruction(self, f):
+        instruction = []
+        while True:
+            code = int.from_bytes(f.read(2), byteorder='little')
+            num_parameters = self.NUM_PARAMETERS[code]
+            parameters = tuple(int.from_bytes(f.read(2), byteorder='little')
+                               for _ in range(num_parameters))
+            instruction.append((code, parameters))
+            if code == 0x19:
+                break
+        return instruction
+
+    @classmethod
+    def instruction_to_bytes(self, instruction):
+        sequence = []
+        for code, parameters in instruction:
+            sequence.append(code)
+            for p in parameters:
+                sequence.append(p)
+        return b''.join(c.to_bytes(2, byteorder='little') for c in sequence)
+
+    @property
+    def pretty(self):
+        s = 'CONDITIONAL {0:0>2X}\n'.format(self.index)
+        for instruction in self.instructions:
+            line = ''
+            for code, parameters in instruction:
+                parameters = ','.join('{0:0>4X}'.format(p) for p in parameters)
+                line += '{0:0>2X}({1}) & '.format(code, parameters)
+            line = line[:-3]
+            s += line + '\n'
+        return s.strip()
+
+    @property
+    def event_indexes(self):
+        event_indexes = []
+        for instruction in self.instructions:
+            code, parameters = instruction[-1]
+            assert code == 0x19
+            assert len(parameters) == 1
+            event_indexes.append(parameters[0])
+        return event_indexes
+
+    @classmethod
+    def write_all(self, filename):
+        pointer_address = self.BASE_POINTER + (2*len(self.every))
+        num_total_instructions = sum(len(c.instructions)+1 for c in self.every)
+        instructions_address = pointer_address + (2*num_total_instructions)
+        pointer_offset = 0
+        instructions_offset = 0
+        f = get_open_file(self.get(0).filename)
+        for c in self.every:
+            self.instructions_pointer = (pointer_address + pointer_offset
+                                         - self.BASE_POINTER)
+            for i in c.instructions:
+                f.seek(pointer_address + pointer_offset)
+                ipointer = instructions_address + instructions_offset
+                ip = (ipointer-self.BASE_POINTER)
+                f.write(ip.to_bytes(2, byteorder='little'))
+
+                pointer_offset += 2
+
+                f.seek(ipointer)
+                data = self.instruction_to_bytes(i)
+                f.write(data)
+                instructions_offset += len(data)
+            f.seek(pointer_address + pointer_offset)
+            f.write(b'\x00\x00')
+            pointer_offset += 2
+
+        assert max(c.pointer for c in self.every) <= pointer_address - 2
+        assert pointer_address + pointer_offset <= instructions_address
+        assert (instructions_address + instructions_offset <= self.END_ADDRESS)
+        super().write_all(filename)
+
+    def preprocess(self):
+        f = get_open_file(self.filename)
+
+        index = 0
+        instructions = []
+        while True:
+            f.seek(self.BASE_POINTER + self.instructions_pointer
+                   + (2*len(instructions)))
+            instruction_pointer = int.from_bytes(f.read(2), byteorder='little')
+            if instruction_pointer == 0:
+                break
+            f.seek(self.BASE_POINTER + instruction_pointer)
+            instructions.append(self.get_instruction(f))
+            index += 1
+        self.instructions = instructions
+
+
+class EventObject(TableObject):
+    PARAMETER_FILENAME = path.join(tblpath, 'parameters_events.txt')
+    PARAMETERS = {}
+    for line in read_lines_nocomment(PARAMETER_FILENAME):
+        if ':' in line:
+            code, parameters = line.split(':')
+            if parameters:
+                parameters = tuple(map(int, parameters.split(',')))
+            else:
+                parameters = ()
+        else:
+            code, parameters = line, ()
+        code = int(code, 0x10)
+        PARAMETERS[code] = parameters
+
+    @classmethod
+    def data_to_instructions(self, data):
+        instructions = []
+        while data:
+            code, data = data[0], data[1:]
+            parameter_sizes = self.PARAMETERS[code]
+            parameters = []
+            for s in parameter_sizes:
+                value, data = data[:s], data[s:]
+                assert len(value) == s
+                value = int.from_bytes(value, byteorder='little')
+                parameters.append(value)
+            instructions.append((code, parameters))
+            if code == 0xdb:
+                break
+        return instructions
+
+    @classmethod
+    def data_to_messages(self, data):
+        messages = data.split(b'\xfe')
+        return messages[:-1]
+
+    @property
+    def instruction_data(self):
+        data = b''
+        for code, parameters in self.instructions:
+            data += code.to_bytes(1, byteorder='little')
+            parameter_sizes = self.PARAMETERS[code]
+            assert len(parameters) == len(parameter_sizes)
+            for psize, p in zip(parameter_sizes, parameters):
+                data += p.to_bytes(psize, byteorder='little')
+        return data
+
+    @property
+    def message_data(self):
+        if hasattr(self, 'new_messages'):
+            messages = self.new_messages
+        else:
+            messages = self.messages
+        data = b'\xfe'.join(messages)
+        if data:
+            data += b'\xfe'
+        return data
+
+    @property
+    def pretty(self):
+        s = 'EVENT {0:0>3X}\n'.format(self.index)
+        for code, parameters in self.instructions:
+            s += '{0:0>2X}: '.format(code)
+            parameter_sizes = self.PARAMETERS[code]
+            for psize, p in zip(parameter_sizes, parameters):
+                s += ('{0:0>%sx} ' % (psize*2)).format(p)
+            s += '\n'
+        return s.strip()
+
+    @property
+    def message_indexes(self):
+        indexes = []
+        for code, parameters in self.instructions:
+            if code == 0x10:
+                assert parameters[0] == 0x10
+                indexes.append(parameters[2])
+            elif code == 0x51:
+                index = parameters[1]
+                if index != 0xffff:
+                    indexes.append(parameters[1])
+        if indexes:
+            if max(indexes) > len(self.messages):
+                self._no_modify = True
+            assert min(indexes) >= 1
+        return indexes
+
+    def read_data(self, filename=None, pointer=None):
+        super().read_data(filename, pointer)
+
+        f = get_open_file(self.filename)
+        f.seek(self.pointer)
+        text_offset = int.from_bytes(f.read(4), byteorder='little')
+        if text_offset >= 0x1800:
+            assert text_offset == 0xf2f2f2f2
+        length = min(text_offset, 0x1800) - 4
+        event_data = f.read(length)
+        length = 0x1800 - (length + 4)
+        text_data = f.read(length)
+
+        f.seek(self.pointer + 0x1800)
+        value = int.from_bytes(f.read(4), byteorder='little')
+        if value != 0xf2f2f2f2 or text_offset == 0xf2f2f2f2:
+            self._no_modify = True
+
+        self.old_text_offset = text_offset
+        self.instructions = self.data_to_instructions(event_data)
+        self.messages = self.data_to_messages(text_data)
+        assert self.instruction_data == event_data[:len(self.instruction_data)]
+        assert self.message_data == text_data[:len(self.message_data)]
+        if self.message_indexes and text_offset >= 0x1800:
+            raise Exception('Undefined messages.')
+
+    def automash(self):
+        for i in range(len(self.instructions)):
+            code, parameters = self.instructions[i]
+            if code == 0x10:
+                parameters = list(parameters)
+                assert parameters[0] == 0x10
+                box_type = parameters[1]
+                box_type &= 0x8f
+                parameters[1] = box_type
+                self.instructions[i] = (code, tuple(parameters))
+
+    def cull_messages(self):
+        if hasattr(self, '_no_modify') and self._no_modify:
+            return
+        dummy_message = b'\x36\x2c\x31'
+        indexes = self.message_indexes
+        self.new_messages = []
+        for i in range(len(self.messages)):
+            if (i+1) not in indexes:
+                self.new_messages.append(dummy_message)
+            else:
+                self.new_messages.append(self.messages[i])
+
+    def preprocess(self):
+        self.cull_messages()
+        self.automash()
+
+    def write_data(self, filename=None, pointer=None):
+        no_modify = hasattr(self, '_no_modify') and self._no_modify
+        length = len(self.instruction_data) + 4
+        f = get_open_file(self.filename)
+        if not no_modify:
+            f.seek(self.pointer)
+            f.write(length.to_bytes(4, byteorder='little'))
+
+        f.seek(self.pointer + 4)
+        f.write(self.instruction_data)
+
+        if no_modify:
+            return
+
+        free_space = 0x1800 - length
+        message_data = self.message_data
+        if len(message_data) > free_space:
+            raise Exception('Not enough space.')
+        if len(message_data) < free_space:
+            message_data = message_data + (
+                b'\x00' * (free_space - len(message_data)))
+        assert len(message_data) == free_space
+        f.write(message_data)
 
 
 class MapMixin(TableObject):
