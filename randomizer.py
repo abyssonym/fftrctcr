@@ -215,6 +215,7 @@ class JobObject(TableObject):
     FAITH_STATUS =          0x8000000000
     INNOCENT_STATUS =       0x4000000000
     INVITE_STATUS =         0x0000004000
+    FLOAT_STATUS =          0x0000400000
 
     BANNED_RSMS = [0x1bb, 0x1e1, 0x1e4, 0x1e5, 0x1f1]
     LUCAVI_INNATES = (lange(0x1a6, 0x1a9) + [0x1aa] + lange(0x1ac, 0x1b0)
@@ -2207,6 +2208,16 @@ class EventObject(TableObject):
         messages = data.split(b'\xfe')
         return messages[:-1]
 
+    @cached_property
+    def encounters(self):
+        return [e for e in EncounterObject.every
+                if e.conditional_index > 0
+                and self.index in e.conditional.event_indexes]
+
+    @cached_property
+    def units(self):
+        return [u for e in self.encounters for u in e.units]
+
     @property
     def instruction_data(self):
         data = b''
@@ -2217,6 +2228,13 @@ class EventObject(TableObject):
             for psize, p in zip(parameter_sizes, parameters):
                 data += p.to_bytes(psize, byteorder='little')
         return data
+
+    @cached_property
+    def is_initial_event(self):
+        for bco in BattleConditionalObject.every:
+            if self.index == bco.event_indexes[0]:
+                return True
+        return False
 
     @property
     def message_data(self):
@@ -2309,6 +2327,35 @@ class EventObject(TableObject):
     def preprocess(self):
         self.cull_messages()
         self.automash()
+
+    def setup_chocobo_knights(self):
+        if not self.is_initial_event:
+            return
+
+        riders = [u for u in self.units if hasattr(u, '_chocobo_mount')]
+        mounts = [u for u in self.units if hasattr(u, '_chocobo_rider')]
+        assert len(riders) == len(mounts)
+        if not riders:
+            return
+        next_unit_id = 0x90
+        mount_instructions = []
+        for rider in riders:
+            mount = [m for m in mounts if m._chocobo_rider is rider][0]
+            assert rider._chocobo_mount is mount
+            if rider.unit_id == 0xff:
+                rider.unit_id = next_unit_id
+                next_unit_id += 1
+            elevation = 1 if mount.is_upper else 0
+            instruction = (0x28, (rider.unit_id, 0x00, mount.x, mount.y,
+                                  elevation, 0x00, 0x7f, 0x01))
+            mount_instructions.append(instruction)
+        assert self.instructions[-1] == (0xdb, [])
+        self.instructions = (self.instructions[:-1] + mount_instructions
+                             + [self.instructions[-1]])
+        assert self.instructions[-1] == (0xdb, [])
+
+    def cleanup(self):
+        self.setup_chocobo_knights()
 
     def write_data(self, filename=None, pointer=None):
         no_modify = hasattr(self, '_no_modify') and self._no_modify
@@ -2744,6 +2791,7 @@ class UnitObject(TableObject):
     MALE_GRAPHIC = 0x80
     FEMALE_GRAPHIC = 0x81
     GENERIC_GRAPHICS = (MALE_GRAPHIC, FEMALE_GRAPHIC)
+    CHOCOBO_SPRITE_ID = (0x82, 0x86)
 
     @classproperty
     def after_order(self):
@@ -2774,8 +2822,15 @@ class UnitObject(TableObject):
     @clached_property
     def human_unit_pool(self):
         return [u for u in self.ranked if (u.is_present or u.is_important)
-                and u.entd.is_valid and u.rank >= 0
-                and u.old_data['graphic'] != self.MONSTER_GRAPHIC]
+                and u.entd.is_valid and u.rank >= 0 and u.is_human]
+
+    @property
+    def is_human(self):
+        return self.graphic != self.MONSTER_GRAPHIC
+
+    @property
+    def is_chocobo(self):
+        return self.sprite_id == self.CHOCOBO_SPRITE_ID
 
     @property
     def human_unit_pool_member(self):
@@ -2805,6 +2860,11 @@ class UnitObject(TableObject):
                 and not (u.old_job.is_generic or u.old_job.is_monster)
                 and u.old_job.old_data['skillset_index'] > 0
                 and u.get_gender() is not None]
+
+    @clached_property
+    def chocobo_pool(self):
+        return [u for u in self.ranked if u.is_valid
+                and u.old_sprite_id == self.CHOCOBO_SPRITE_ID]
 
     @clached_property
     def all_used_skillsets(self):
@@ -3101,8 +3161,10 @@ class UnitObject(TableObject):
                      'secondary', 'reaction', 'support', 'movement']:
             if random.choice([True, False]):
                 setattr(self, attr, other.old_data[attr])
+        self.set_bit('always_present', True)
         self.clear_gender()
         self.set_bit(other.get_gender(), True)
+        self.clear_cache()
 
     def randomize_job(self):
         if hasattr(self, '_target_sprite'):
@@ -3130,7 +3192,12 @@ class UnitObject(TableObject):
                      if u.is_present_old and u.has_generic_sprite_old]
 
         for _ in range(10):
-            test = random.choice(self.entd.available_sprites)
+            if self.entd.available_sprites:
+                test = random.choice(self.entd.available_sprites)
+            else:
+                available_sprites = [u._target_sprite for u in self.neighbors
+                                     if hasattr(u, '_target_sprite')]
+                test = random.choice(available_sprites)
             if (isinstance(test, UnitObject)
                     and random.random() > self.random_degree ** 0.5):
                 continue
@@ -3411,6 +3478,11 @@ class UnitObject(TableObject):
 
             setattr(self, attr, chosen.index)
 
+    @property
+    def allegiance(self):
+        return (self.get_bit('enemy_team') |
+                (self.get_bit('alternate_team') << 1))
+
     def randomize_allegiance(self):
         if self.human_unit_pool_member:
             other = self.human_unit_pool_member.get_similar(
@@ -3434,8 +3506,8 @@ class UnitObject(TableObject):
         if self.graphic == self.MONSTER_GRAPHIC or not self.has_generic_sprite:
             return
         enemy_palettes = [
-            u.old_data['palette'] for u in self.neighbors if u.is_present and
-            u.has_generic_sprite and u.get_bit('enemy_team') and
+            u.old_data['palette'] for u in self.neighbors if u.is_present_old
+            and u.has_generic_sprite and u.get_bit('enemy_team') and
             u.old_data['graphic'] != self.MONSTER_GRAPHIC]
         if self.get_bit('alternate_team'):
             options = sorted(set(range(1, 4)) - set(enemy_palettes))
@@ -3460,8 +3532,37 @@ class UnitObject(TableObject):
             self.randomize_handedness()
         super().randomize()
 
+    @property
+    def is_standing_on_solid_ground(self):
+        if self.map.get_tile_attribute(self.x, self.y, 'depth') != {0}:
+            return False
+        start_status = self.job.innate_status | self.job.start_status
+        if start_status & JobObject.FLOAT_STATUS:
+            return False
+        return True
+
+    def attempt_chocobo_knight(self):
+        candidates = [u for u in self.neighbors if u.is_human
+                      and u.allegiance == self.allegiance
+                      #and u.unit_id >= 0x80
+                      and (u.unit_id < 0xff or u.is_present)
+                      and u.is_standing_on_solid_ground
+                      and not hasattr(u, '_chocobo_mount')]
+        if candidates:
+            chosen = random.choice(candidates)
+            chosen._chocobo_mount = self
+            self._chocobo_rider = chosen
+            self.x = chosen.x
+            self.y = chosen.y
+            self.relocate_nearest_good_tile()
+
     def preclean(self):
         self.fix_palette()
+
+        if (self.is_chocobo and self.encounter is not None
+                and self.encounter.num_characters > 0):
+            self.attempt_chocobo_knight()
+
         if self.is_important and self.map is not None:
             badness = self.map.get_tile_attribute(
                 self.x, self.y, 'bad_regardless',
@@ -3595,6 +3696,17 @@ class ENTDObject(TableObject):
     def encounter(self):
         return self.units[0].encounter
 
+    @property
+    def has_chocobo_potential(self):
+        for u in self.units:
+            if u.is_human and u.is_present and u.unit_id >= 0x80:
+                return True
+        return False
+
+    @property
+    def has_chocobo(self):
+        return UnitObject.CHOCOBO_SPRITE_ID in self.available_sprites
+
     def add_units(self):
         if self.encounter is None or self.encounter.num_characters == 0:
             return
@@ -3614,7 +3726,11 @@ class ENTDObject(TableObject):
             if index == 0:
                 break
 
-            if random.random() < self.random_degree:
+            chocobo = (self.has_chocobo_potential and self.has_chocobo
+                       and random.random() < (self.random_degree ** 0.25)
+                       and random.choice([True, False]))
+
+            if chocobo or random.random() < self.random_degree:
                 spare = spares.pop()
                 template = random.choice(templates)
                 for attr in template.old_data:
@@ -3631,6 +3747,11 @@ class ENTDObject(TableObject):
                 spare.clear_cache()
                 spare.randomize_allegiance()
                 spare.find_appropriate_position()
+                if chocobo:
+                    chocobo = random.choice(UnitObject.chocobo_pool)
+                    spare._target_sprite = (
+                        chocobo.old_data['graphic'], chocobo.old_job.index,
+                        'monster')
             else:
                 break
 
@@ -3686,6 +3807,29 @@ class ENTDObject(TableObject):
                 < len(self.old_sprites)):
             if not generic_units:
                 break
+
+            has_chocobo = (UnitObject.CHOCOBO_SPRITE_ID in
+                           available_sprites | new_sprites)
+            if not has_chocobo:
+                has_chocobo_potential = False
+                for sprite in (sorted(available_sprites)
+                               + sorted(special_sprites)):
+                    if isinstance(sprite, UnitObject) and sprite.is_human:
+                        has_chocobo_potential = True
+                        break
+                    if isinstance(sprite, tuple):
+                        g, j = sprite
+                        if g in UnitObject.GENERIC_GRAPHICS:
+                            has_chocobo_potential = True
+                            break
+                if has_chocobo_potential:
+                    u = random.choice(generic_units + [None])
+                    if u is None:
+                        new_sprite = UnitObject.CHOCOBO_SPRITE_ID
+                        available_sprites.add(new_sprite)
+                        new_sprites.add(new_sprite)
+                        continue
+
             u = random.choice(generic_units)
             if (random.random() < self.random_degree
                     and random.choice([True, False])):
@@ -3693,7 +3837,7 @@ class ENTDObject(TableObject):
                 if (self.index in self.WIEGRAF
                         and new_sprite.get_gender() == 'male'):
                     continue
-                if new_sprite.character_name not in special_names:
+                elif new_sprite.character_name not in special_names:
                     special_sprites.add(new_sprite)
             else:
                 new_sprite = u.get_similar_sprite(exclude_sprites=new_sprites)
