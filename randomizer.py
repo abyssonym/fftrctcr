@@ -54,6 +54,7 @@ class AbilityObject(TableObject):
     NON_CHARGE = 0x1e3
     TELEPORT2 = 0x1f3
     MP_RESTORE_INNATES = [0x1ee, 0x1b6, 0x1b0]
+    MAINTENANCE = 0x1db
 
     @property
     def rank(self):
@@ -227,7 +228,7 @@ class JobObject(TableObject):
                       ) + AbilityObject.MP_RESTORE_INNATES
 
     LUCAVI_ORDER = [0x43, 0x3c, 0x3e, 0x45, 0x40, 0x41, 0x97, 0x49]
-    MONSTER_JOBS = lange(0x5e, 0x8e) + [0x90, 0x91, 0x96, 0x97, 0x99, 0x9a]
+    MONSTER_JOBS = lange(0x5e, 0x8e) + [0x90, 0x91, 0x96, 0x99, 0x9a]
     STORYLINE_RECRUITABLE_NAMES = {
         'Ramza', 'Mustadio', 'Agrias', 'Meliadoul', 'Rafa', 'Malak', 'Orlandu',
         'Beowulf', 'Cloud', 'Reis',
@@ -326,7 +327,16 @@ class JobObject(TableObject):
     def is_generic(self):
         return JobObject.SQUIRE_INDEX <= self.index <= JobObject.MIME_INDEX
 
-    @property
+    @clached_property
+    def ranked_generic_jobs_candidates(self):
+        generic_jobs = [j for j in JobObject.every if j.is_generic
+                        and j.index != self.SQUIRE_INDEX]
+        generic_jobs = sorted(
+            generic_jobs, key=lambda j: (j.get_jp_total(),
+                                         j.signature))
+        return generic_jobs
+
+    @cached_property
     def is_monster(self):
         return (self.index >= 0x5e and self.index in self.MONSTER_JOBS
                 and not self.is_lucavi)
@@ -377,8 +387,8 @@ class JobObject(TableObject):
 
     @cached_property
     def avg_entd_level(self):
-        levels = [e.avg_level for e in ENTDObject.every
-                  if e.is_valid and self in e.old_jobs]
+        levels = [e.avg_level for e in ENTDObject.valid_entds
+                  if self in e.old_jobs]
         levels = [l for l in levels if l is not None]
         if not levels:
             return -1
@@ -639,14 +649,17 @@ class ItemObject(MutateBoostMixin):
     flag = 'p'
     flag_description = 'shop item availability'
 
-    BANNED_ITEMS = [0x49]
-    PRICELESS_ITEMS = [0x6a, 0x8f]
-
     mutate_attributes = {
         'price': (0, 65000),
         'time_available': (1, 16),
         'enemy_level': (1, 99),
         }
+
+    BANNED_ITEMS = [0x49]
+    PRICELESS_ITEMS = [0x6a, 0x8f]
+    CHAOS_BLADE = 0x25
+    RIBBON = 0xAB
+    REFLECT_MAIL = 0xB8
 
     @cached_property
     def rank(self):
@@ -666,6 +679,20 @@ class ItemObject(MutateBoostMixin):
     @property
     def is_equipment(self):
         return self.misc1 & 0xf8
+
+    @clached_property
+    def ranked_hands_candidates(self):
+        candidates = [c for c in ItemObject.ranked if c.intershuffle_valid
+                      and c.is_equipment and
+                      (c.get_bit('weapon') or c.get_bit('shield'))]
+        return candidates
+
+    @clached_property
+    def ranked_nohands_candidates(self):
+        candidates = [c for c in ItemObject.ranked if c.intershuffle_valid
+                      and c.is_equipment and not
+                      (c.get_bit('weapon') or c.get_bit('shield'))]
+        return candidates
 
     @property
     def equip_flag(self):
@@ -1839,16 +1866,16 @@ class FormationObject(TableObject):
             self.map_index = 0x32
             self.old_data['map_index'] = 0x32
 
-    def cleanup(self):
-        if self.encounters:
-            assert {self.map_index} == {e.map_index for e in self.encounters}
-
 
 class EncounterObject(TableObject):
     flag = 'f'
     flag_description = 'enemy and ally formations'
 
     ENABLE_RECKLESS_REPLACEMENT = True
+
+    GARILAND = 0x9
+    ENDING = 0x12b
+    ENDING_MUSIC = 0x45
 
     NO_REPLACE = {0x184, 0x185, 0x1c2}
     MAP_MOVEMENTS_FILENAME = path.join(tblpath, 'map_movements.txt')
@@ -1900,7 +1927,7 @@ class EncounterObject(TableObject):
         return (self.num_characters and not self.movements
                     and not hasattr(self.map, '_loaded_from'))
 
-    @property
+    @cached_property
     def is_canonical(self):
         return self.canonical_relative is self
 
@@ -1937,6 +1964,40 @@ class EncounterObject(TableObject):
     @property
     def units(self):
         return self.entd.units
+
+    @classmethod
+    def get_unused(self):
+        candidates = [
+            e for e in EncounterObject.every if e.map_index == 0 and
+            e.conditional_index == 0 and e.entd_index == 0
+            and e.next_scene == 0 and e.following == 0 and e.scenario == 0]
+        unused = candidates[0]
+        unused.scenario = max(e.scenario for e in EncounterObject.every) + 1
+        return unused
+
+    @classmethod
+    def get_by_scenario(self, scenario):
+        encs = [e for e in EncounterObject.every if e.scenario == scenario]
+        if len(encs) == 1:
+            return encs[0]
+
+    @property
+    def family(self):
+        if self.scenario == 0 or self.entd_index == 0:
+            return [self]
+
+        family = [e for e in EncounterObject.every
+                  if e.entd_index == self.entd_index]
+        assert len({e.conditional_index for e in family
+                    if e.conditional_index > 0}) <= 1
+        assert len({wco for e in family for wco in e.world_conditionals}) <= 1
+
+        return family
+
+    @property
+    def world_conditionals(self):
+        return [wco for wco in WorldConditionalObject.every
+                if self in wco.encounters]
 
     def set_formations(self, f1, f2=0):
         f1 = f1.index
@@ -1986,22 +2047,24 @@ class EncounterObject(TableObject):
         self.DONE_MAPS.add(chosen)
         self.REPLACED_MAPS.add(self.old_data['map_index'])
 
-    def generate_formations(self):
+    def generate_formations(self, num_characters=None):
+        if num_characters is None:
+            num_characters = self.num_characters
         templates = [e for e in EncounterObject.every if e.formations]
         template = random.choice(templates)
         num_formations = len(template.old_formations)
-        if self.num_characters == 0:
+        if num_characters == 0:
             return
         assert 1 <= num_formations <= 2
-        if num_formations == 2:
+        if num_characters > 1 and num_formations == 2:
             numchars = [f.num_characters for f in template.old_formations]
             random.shuffle(numchars)
             ratio = numchars[0] / sum(numchars)
-            n1 = int(round(self.num_characters * ratio))
-            n2 = self.num_characters - n1
-            assert 1 <= n1 < self.num_characters
-            assert 1 <= n2 < self.num_characters
-            assert n1 + n2 == self.num_characters
+            n1 = int(round(num_characters * ratio))
+            n2 = num_characters - n1
+            assert 1 <= n1 < num_characters
+            assert 1 <= n2 < num_characters
+            assert n1 + n2 == num_characters
             f1 = FormationObject.get_unused()
             f1.generate(self.map_index, n1)
             f2 = FormationObject.get_unused()
@@ -2009,7 +2072,7 @@ class EncounterObject(TableObject):
             self.set_formations(f1, f2)
         else:
             f = FormationObject.get_unused()
-            f.generate(self.map_index, self.num_characters)
+            f.generate(self.map_index, num_characters)
             self.set_formations(f)
 
         # do this after creating new units?
@@ -2045,9 +2108,108 @@ class EncounterObject(TableObject):
             assert f.map_index == self.map_index
 
 
-class BattleConditionalObject(TableObject):
+class ConditionalMixin(TableObject):
+    @classmethod
+    def get_instruction(self, f):
+        instruction = []
+        while True:
+            code = int.from_bytes(f.read(2), byteorder='little')
+            num_parameters = self.NUM_PARAMETERS[code]
+            parameters = tuple(int.from_bytes(f.read(2), byteorder='little')
+                               for _ in range(num_parameters))
+            instruction.append((code, parameters))
+            if code in self.TERMINATING_CODES:
+                break
+        return instruction
+
+    @classmethod
+    def instruction_to_bytes(self, instruction):
+        sequence = []
+        for code, parameters in instruction:
+            sequence.append(code)
+            for p in parameters:
+                sequence.append(p)
+        return b''.join(c.to_bytes(2, byteorder='little') for c in sequence)
+
+    @property
+    def pretty(self):
+        s = self.description + '\n'
+        for instruction in self.instructions:
+            line = ''
+            for code, parameters in instruction:
+                parameters = ','.join('{0:0>4x}'.format(p) for p in parameters)
+                line += '{0:0>2X}:{1}  '.format(code, parameters)
+            s += line + '\n'
+        return s.strip()
+
+    def preprocess(self):
+        f = get_open_file(self.filename)
+
+        index = 0
+        instructions = []
+        while True:
+            f.seek(self.BASE_POINTER + self.instructions_pointer
+                   + (2*len(instructions)))
+            instruction_pointer = int.from_bytes(f.read(2), byteorder='little')
+            if instruction_pointer == 0:
+                break
+            f.seek(self.BASE_POINTER + instruction_pointer)
+            instructions.append(self.get_instruction(f))
+            index += 1
+        self.instructions = instructions
+
+    @classmethod
+    def write_all(self, filename):
+        pointer_address = self.BASE_POINTER + (2*len(self.every))
+        num_total_instructions = sum(len(c.instructions)+1 for c in self.every)
+        instructions_address = pointer_address + (2*num_total_instructions)
+        pointer_offset = 0
+        instructions_offset = 0
+        f = get_open_file(self.get(0).filename)
+        for c in self.every:
+            c.instructions_pointer = (pointer_address + pointer_offset
+                                      - self.BASE_POINTER)
+            for i in c.instructions:
+                f.seek(pointer_address + pointer_offset)
+                ipointer = instructions_address + instructions_offset
+                ip = (ipointer-self.BASE_POINTER)
+                f.write(ip.to_bytes(2, byteorder='little'))
+
+                pointer_offset += 2
+
+                f.seek(ipointer)
+                data = self.instruction_to_bytes(i)
+                f.write(data)
+                instructions_offset += len(data)
+            f.seek(pointer_address + pointer_offset)
+            f.write(b'\x00\x00')
+            pointer_offset += 2
+
+        assert max(c.pointer for c in self.every) <= pointer_address - 2
+        assert pointer_address + pointer_offset <= instructions_address
+        assert (instructions_address + instructions_offset <= self.END_ADDRESS)
+        super().write_all(filename)
+
+    def load_patch(self, patch):
+        new_instructions = []
+        for line in patch.split('\n'):
+            instruction = []
+            for codepa in line.split():
+                code, parameters = codepa.split(':')
+                code = int(code, 0x10)
+                parameters = [int(p, 0x10) for p in parameters.split(',') if p]
+                assert len(parameters) == self.NUM_PARAMETERS[code]
+                instruction.append((code, parameters))
+            new_instructions.append(instruction)
+
+        self.instructions = new_instructions
+
+
+class BattleConditionalObject(ConditionalMixin):
     BASE_POINTER = 0x14938
     END_ADDRESS = 0x16af4
+
+    TERMINATING_CODES = {0x19}
 
     NUM_PARAMETERS = {
         0x01: 2,
@@ -2074,43 +2236,7 @@ class BattleConditionalObject(TableObject):
         0x25: 4,
         }
 
-    @property
-    def successor(self):
-        return self.get(self.index + 1)
-
-    @classmethod
-    def get_instruction(self, f):
-        instruction = []
-        while True:
-            code = int.from_bytes(f.read(2), byteorder='little')
-            num_parameters = self.NUM_PARAMETERS[code]
-            parameters = tuple(int.from_bytes(f.read(2), byteorder='little')
-                               for _ in range(num_parameters))
-            instruction.append((code, parameters))
-            if code == 0x19:
-                break
-        return instruction
-
-    @classmethod
-    def instruction_to_bytes(self, instruction):
-        sequence = []
-        for code, parameters in instruction:
-            sequence.append(code)
-            for p in parameters:
-                sequence.append(p)
-        return b''.join(c.to_bytes(2, byteorder='little') for c in sequence)
-
-    @property
-    def pretty(self):
-        s = 'CONDITIONAL {0:0>2X}\n'.format(self.index)
-        for instruction in self.instructions:
-            line = ''
-            for code, parameters in instruction:
-                parameters = ','.join('{0:0>4X}'.format(p) for p in parameters)
-                line += '{0:0>2X}({1}) & '.format(code, parameters)
-            line = line[:-3]
-            s += line + '\n'
-        return s.strip()
+    DD_END_EVENT = 0x25
 
     @property
     def event_indexes(self):
@@ -2122,53 +2248,190 @@ class BattleConditionalObject(TableObject):
             event_indexes.append(parameters[0])
         return event_indexes
 
-    @classmethod
-    def write_all(self, filename):
-        pointer_address = self.BASE_POINTER + (2*len(self.every))
-        num_total_instructions = sum(len(c.instructions)+1 for c in self.every)
-        instructions_address = pointer_address + (2*num_total_instructions)
-        pointer_offset = 0
-        instructions_offset = 0
-        f = get_open_file(self.get(0).filename)
-        for c in self.every:
-            self.instructions_pointer = (pointer_address + pointer_offset
-                                         - self.BASE_POINTER)
-            for i in c.instructions:
-                f.seek(pointer_address + pointer_offset)
-                ipointer = instructions_address + instructions_offset
-                ip = (ipointer-self.BASE_POINTER)
-                f.write(ip.to_bytes(2, byteorder='little'))
 
-                pointer_offset += 2
+class WorldConditionalObject(ConditionalMixin):
+    BASE_POINTER = 0x30234
+    END_ADDRESS = 0x31238
 
-                f.seek(ipointer)
-                data = self.instruction_to_bytes(i)
-                f.write(data)
-                instructions_offset += len(data)
-            f.seek(pointer_address + pointer_offset)
-            f.write(b'\x00\x00')
-            pointer_offset += 2
+    TERMINATING_CODES = {0x19, 0x1a, 0x1d, 0x1e, 0x1f,
+                         0x20, 0x21, 0x22, 0x23, 0x24}
 
-        assert max(c.pointer for c in self.every) <= pointer_address - 2
-        assert pointer_address + pointer_offset <= instructions_address
-        assert (instructions_address + instructions_offset <= self.END_ADDRESS)
-        super().write_all(filename)
+    NUM_PARAMETERS = {
+        0x01: 2,
+        0x02: 2,
+        0x03: 2,
+        0x04: 1,
+        0x0e: 1,
+        0x0f: 1,
+        0x10: 2,
+        0x11: 2,
+        0x12: 1,
+        0x13: 1,
+        0x19: 2,
+        0x1a: 8,
+        0x1c: 2,
+        0x1d: 1,
+        0x1e: 3,
+        0x1f: 2,
+        0x20: 2,
+        0x21: 2,
+        0x22: 1,
+        0x23: 1,
+        0x24: 1,
+        0x25: 1,
+        0x26: 1,
+        0x27: 1,
+        0x28: 1,
+        }
 
-    def preprocess(self):
-        f = get_open_file(self.filename)
+    WARJILIS = 0xc
+    ZARGHIDAS = 0xe
 
-        index = 0
-        instructions = []
-        while True:
-            f.seek(self.BASE_POINTER + self.instructions_pointer
-                   + (2*len(instructions)))
-            instruction_pointer = int.from_bytes(f.read(2), byteorder='little')
-            if instruction_pointer == 0:
-                break
-            f.seek(self.BASE_POINTER + instruction_pointer)
-            instructions.append(self.get_instruction(f))
-            index += 1
-        self.instructions = instructions
+    @classproperty
+    def after_order(self):
+        return [UnitObject]
+
+    @property
+    def encounters(self):
+        scenario_indexes = []
+        for instruction in self.instructions:
+            code, parameters = instruction[-1]
+            if code == 0x19:
+                scenario_indexes.append(parameters[0])
+            elif code == 0x1a:
+                scenario_indexes.extend([parameters[i] for i in (1, 3, 5, 7)])
+            elif code == 0x1e:
+                scenario_indexes.append(parameters[1])
+
+        return [EncounterObject.get_by_scenario(i) for i in scenario_indexes]
+
+    def insert_bonus(self, map_index, monsters, initial_encounter=0):
+        before = self.encounters[initial_encounter]
+
+        gariland = EncounterObject.get(EncounterObject.GARILAND)
+        new_encounter = EncounterObject.get_unused()
+        new_entd = ENTDObject.get_unused()
+        scenario = new_encounter.scenario
+        new_encounter.copy_data(gariland)
+        new_encounter.scenario = scenario
+        new_encounter.conditional_index = BattleConditionalObject.DD_END_EVENT
+        new_encounter.map_index = map_index
+        new_encounter.ramza = 0
+        #new_encounter.randomize_music(prefer_unused=True)
+        #new_encounter.randomize_weather()
+        new_encounter.entd_index = new_entd.index
+
+        for u in new_encounter.units:
+            u.reset_blank()
+
+        partner_template = random.choice(
+            [u for u in UnitObject.special_unit_pool if u.is_human])
+        partner = new_encounter.units[0]
+        partner.become_another(partner_template)
+        for bitflag in [
+                'save_formation', 'test_teta', 'load_formation',
+                'join_after_event', 'control', 'enemy_team','alternate_team',
+                'randomly_present']:
+            partner.set_bit(bitflag, False)
+        partner.set_bit('hidden_stats', True)
+        partner.set_bit('immortal', True)
+        partner.level = random.randint(random.randint(50, 99), 99)
+        partner.righthand = ItemObject.CHAOS_BLADE
+        partner.head = ItemObject.RIBBON
+        partner.body = ItemObject.REFLECT_MAIL
+        partner.secondary = 0xfe
+        partner.lefthand = 0xfe
+        partner.support = AbilityObject.MAINTENANCE
+
+        pinatas = new_encounter.units[1:-1]
+        assert len(set([partner] + pinatas)) == 15
+
+        if monsters:
+            sprite_pool = set()
+            monster_jobs = [
+                j for j in JobObject.every if j.index in JobObject.MONSTER_JOBS
+                and j.monster_sprite > 0]
+            sprite_pool = random.sample(
+                sorted({j.monster_portrait for j in monster_jobs}), 7)
+
+            monster_jobs = [
+                j for j in JobObject.every if j.index in JobObject.MONSTER_JOBS
+                and j.monster_sprite > 0 and j.monster_portrait in sprite_pool]
+            monster_jobs = random.sample(monster_jobs, len(pinatas))
+
+            for p, j in zip(pinatas, monster_jobs):
+                p.graphic = UnitObject.MONSTER_GRAPHIC
+                p.job_index = j.index
+                p.palette = 3
+                p.secondary = 0
+                for attr in UnitObject.EQUIPMENT_ATTRS:
+                    setattr(p, attr, 0)
+        else:
+            chosen = random.choice(UnitObject.special_unit_pool)
+            jobs = random.sample(JobObject.ranked_generic_jobs_candidates,
+                                 len(pinatas)-1)
+            jobs.append(chosen.job)
+            for p, j in zip(pinatas, jobs):
+                p.graphic = chosen.graphic
+                p.job_index = j.index
+                if p.job is chosen.job:
+                    for attr in ['month', 'day', 'brave', 'faith',
+                                 'name_index']:
+                        setattr(p, attr, getattr(chosen, attr))
+                else:
+                    p.unlocked = p.job_index - JobObject.SQUIRE_INDEX
+                    p.unlocked_level = random.randint(0, 8)
+
+                for attr in UnitObject.EQUIPMENT_ATTRS:
+                    setattr(p, attr, 0xff)
+
+                good_item_attr = random.choice(UnitObject.EQUIPMENT_ATTRS)
+                if good_item_attr in ['righthand', 'lefthand']:
+                    candidates = ItemObject.ranked_hands_candidates
+                else:
+                    candidates = ItemObject.ranked_nohands_candidates
+
+                max_index = len(candidates) - 1
+                value = mutate_normal(0.5, 0, 1.0, return_float=True,
+                                      random_degree=PoachObject.random_degree)
+                index = int(round(value * max_index))
+                good_item = candidates[index]
+                if good_item.get_bit('weapon'):
+                    bad_item_attr = random.choice([
+                        equip for equip in UnitObject.EQUIPMENT_ATTRS
+                        if equip != good_item_attr])
+                else:
+                    if good_item_attr == 'righthand':
+                        bad_item_attr = 'lefthand'
+                    else:
+                        bad_item_attr = 'righthand'
+
+                setattr(p, good_item_attr, good_item.index)
+                setattr(p, bad_item_attr, 0xfe)
+
+        partner.clear_cache()
+        for p in pinatas:
+            p.level = random.randint(1, random.randint(1, 50))
+            p.set_bit('enemy_team', True)
+            p.set_bit('always_present', True)
+            p.clear_cache()
+
+        new_encounter.clear_cache()
+        new_encounter.generate_formations(num_characters=1)
+
+        for encounter in before.family:
+            if encounter.following == 0x80:
+                encounter.following = 0x81
+                encounter.next_scene = new_encounter.scenario
+
+
+class PropositionObject(TableObject):
+    def cleanup(self):
+        if 1 <= self.unlocked <= 5:
+            self.unlocked = 1
+
+
+class PropositionJPObject(TableObject): pass
 
 
 class EventObject(TableObject):
@@ -2249,12 +2512,13 @@ class EventObject(TableObject):
 
     @property
     def pretty(self):
-        s = 'EVENT {0:0>3X}\n'.format(self.index)
-        for code, parameters in self.instructions:
-            s += '{0:0>2X}: '.format(code)
+        s = self.description + '\n'
+        for i, (code, parameters) in enumerate(self.instructions):
+            s += '{0:>3}. {1:0>2X}:'.format(i, code)
             parameter_sizes = self.PARAMETERS[code]
             for psize, p in zip(parameter_sizes, parameters):
-                s += ('{0:0>%sx} ' % (psize*2)).format(p)
+                s += ('{0:0>%sx},' % (psize*2)).format(p)
+            s = s.rstrip(',')
             s += '\n'
         return s.strip()
 
@@ -2290,7 +2554,7 @@ class EventObject(TableObject):
 
         f.seek(self.pointer + 0x1800)
         value = int.from_bytes(f.read(4), byteorder='little')
-        if value != 0xf2f2f2f2 or text_offset == 0xf2f2f2f2:
+        if value != 0xf2f2f2f2:
             self._no_modify = True
 
         self.old_text_offset = text_offset
@@ -2328,6 +2592,39 @@ class EventObject(TableObject):
         self.cull_messages()
         self.automash()
 
+    def load_patch(self, patch):
+        if hasattr(self, '_no_modify') and self._no_modify:
+            raise Exception('Cannot patch event %X.' % self.index)
+
+        old = self.pretty
+
+        removals = [line for line in patch.split('\n')
+                    if line[0] == '-']
+        additions = [line for line in patch.split('\n')
+                     if line[0] == '+']
+
+        removal_indexes = set()
+        for r in removals:
+            assert r[1:] in old
+            index, _ = r[1:].strip().split('.')
+            index = int(index)
+            removal_indexes.add(index)
+
+        new_instructions = [inst for (i, inst) in enumerate(self.instructions)
+                            if i not in removal_indexes]
+
+        for a in additions:
+            index, s = a[1:].strip().split('.')
+            index = int(index)
+            s = s.strip()
+            code, parameters = s.split(':')
+            code = int(code, 0x10)
+            parameters = [int(p, 0x10) for p in parameters.split(',') if p]
+            assert len(parameters) == len(self.PARAMETERS[code])
+            new_instructions.insert(index, (code, parameters))
+
+        self.instructions = new_instructions
+
     def setup_chocobo_knights(self):
         if not self.is_initial_event:
             return
@@ -2358,10 +2655,13 @@ class EventObject(TableObject):
         self.setup_chocobo_knights()
 
     def write_data(self, filename=None, pointer=None):
+        if self.old_text_offset == 0xf2f2f2f2 and self.messages:
+            raise Exception('Event %X cannot have messages.' % self.index)
+
         no_modify = hasattr(self, '_no_modify') and self._no_modify
         length = len(self.instruction_data) + 4
         f = get_open_file(self.filename)
-        if not no_modify:
+        if self.old_text_offset != 0xf2f2f2f2 and not no_modify:
             f.seek(self.pointer)
             f.write(length.to_bytes(4, byteorder='little'))
 
@@ -2458,6 +2758,9 @@ class GNSObject(MapMixin):
             if index not in CUSTOM_INDEX_OPTIONS:
                 CUSTOM_INDEX_OPTIONS[index] = [None]
             CUSTOM_INDEX_OPTIONS[index].append(sorted(filepaths))
+
+    WARJILIS = 42
+    ZARGHIDAS = 33
 
     @cached_property
     def meshes(self):
@@ -2793,6 +3096,8 @@ class UnitObject(TableObject):
     GENERIC_GRAPHICS = (MALE_GRAPHIC, FEMALE_GRAPHIC)
     CHOCOBO_SPRITE_ID = (0x82, 0x86)
 
+    EQUIPMENT_ATTRS = ['head', 'body', 'accessory', 'righthand', 'lefthand']
+
     @classproperty
     def after_order(self):
         return [GNSObject, ENTDObject, SkillsetObject, JobReqObject, JobObject]
@@ -2805,7 +3110,7 @@ class UnitObject(TableObject):
     def entd(self):
         return ENTDObject.get(self.entd_index)
 
-    @property
+    @cached_property
     def is_valid(self):
         if not (self.is_present or self.is_important):
             return False
@@ -2826,7 +3131,8 @@ class UnitObject(TableObject):
 
     @property
     def is_human(self):
-        return self.graphic != self.MONSTER_GRAPHIC
+        return (self.graphic != self.MONSTER_GRAPHIC
+                and not self.old_job.is_lucavi)
 
     @property
     def is_chocobo(self):
@@ -2860,6 +3166,11 @@ class UnitObject(TableObject):
                 and not (u.old_job.is_generic or u.old_job.is_monster)
                 and u.old_job.old_data['skillset_index'] > 0
                 and u.get_gender() is not None]
+
+    @clached_property
+    def monster_pool(self):
+        return [u for u in self.ranked if u.is_valid
+                and u.old_job.is_generic and u.old_job.is_monster]
 
     @clached_property
     def chocobo_pool(self):
@@ -2935,6 +3246,15 @@ class UnitObject(TableObject):
         else:
             job_sprite = None
         return self.old_data['graphic'], job_sprite
+
+    def set_sprite(self, sprite_id):
+        graphic, job_sprite = sprite_id
+        if graphic == self.MONSTER_GRAPHIC:
+            candidates = [j for j in JobObject.every
+                          if j.monster_portrait == job_sprite]
+            self.job_index = random.choice(candidates).index
+        elif graphic in self.GENERIC_GRAPHICS:
+            self.job_index = job_sprite
 
     def get_similar_sprite(self, exclude_sprites=None, random_degree=None):
         if exclude_sprites is None:
@@ -3043,7 +3363,7 @@ class UnitObject(TableObject):
             or self.get_bit('always_present', old=True)
             or self.old_data['unit_id'] != 0xff)
 
-    @property
+    @cached_property
     def is_important(self):
         if self.has_unique_name:
             return True
@@ -3051,11 +3371,12 @@ class UnitObject(TableObject):
 
     @cached_property
     def encounter(self):
-        encounters = [e for e in EncounterObject.every
-                      if e.entd_index == self.entd_index
-                      and e.is_canonical]
-        if len(encounters) == 1:
-            return encounters[0]
+        if self.entd_index == 0:
+            return None
+
+        for e in EncounterObject.every:
+            if e.entd_index == self.entd_index:
+                return e.canonical_relative
 
     @property
     def map(self):
@@ -3157,14 +3478,28 @@ class UnitObject(TableObject):
                      'brave', 'faith', 'unlocked', 'unlocked_level',
                      'job_index', 'palette']:
             setattr(self, attr, other.old_data[attr])
-        for attr in ['head', 'body', 'accessory', 'righthand', 'lefthand',
-                     'secondary', 'reaction', 'support', 'movement']:
+        for attr in UnitObject.EQUIPMENT_ATTRS + [
+                 'secondary', 'reaction', 'support', 'movement']:
             if random.choice([True, False]):
                 setattr(self, attr, other.old_data[attr])
         self.set_bit('always_present', True)
         self.clear_gender()
         self.set_bit(other.get_gender(), True)
         self.clear_cache()
+
+    def reset_blank(self):
+        self.name_index = 0xff
+        self.unit_id = 0xff
+        self.unknown2 = 0xfffe
+        for attr in ['level', 'unlocked', 'unlocked_level', 'job_index',
+                     'trophy', 'gil', 'unknown3', 'unknown4', 'behavior',
+                     'target_id', 'misc1', 'misc2', 'graphic', 'palette']:
+            setattr(self, attr, 0)
+        for attr in (['month', 'day', 'brave', 'faith', 'secondary']
+                + UnitObject.EQUIPMENT_ATTRS):
+            setattr(self, attr, 0xfe)
+        for attr in ['reaction', 'support', 'movement']:
+            setattr(self, attr, 0x1fe)
 
     def randomize_job(self):
         if hasattr(self, '_target_sprite'):
@@ -3243,13 +3578,12 @@ class UnitObject(TableObject):
             self.set_bit('monster', True)
 
     def randomize_equips(self):
-        equips = ['head', 'body', 'accessory', 'righthand', 'lefthand']
         if self.job.is_monster:
-            for equip in equips:
+            for equip in UnitObject.EQUIPMENT_ATTRS:
                 setattr(self, equip, 0)
             return
 
-        for equip in equips:
+        for equip in UnitObject.EQUIPMENT_ATTRS:
             if self.rank < 0:
                 template = self
             else:
@@ -3261,10 +3595,10 @@ class UnitObject(TableObject):
                 else:
                     template = self
 
-            tequips = [template.old_data[q] for q in equips
+            tequips = [template.old_data[q] for q in UnitObject.EQUIPMENT_ATTRS
                        if 1 <= template.old_data[q] <= 0xfd]
             if not tequips:
-                tequips = [self.old_data[q] for q in equips
+                tequips = [self.old_data[q] for q in UnitObject.EQUIPMENT_ATTRS
                            if 1 <= self.old_data[q] <= 0xfd]
             if not tequips:
                 continue
@@ -3273,14 +3607,11 @@ class UnitObject(TableObject):
                 if test is None:
                     continue
 
-            candidates = [c for c in ItemObject.ranked if c.intershuffle_valid
-                          and c.is_equipment]
             if equip in ['righthand', 'lefthand']:
-                candidates = [c for c in candidates if
-                              c.get_bit('weapon') or c.get_bit('shield')]
+                candidates = ItemObject.ranked_hands_candidates
             else:
-                candidates = [c for c in candidates if not
-                              (c.get_bit('weapon') or c.get_bit('shield'))]
+                candidates = ItemObject.ranked_nohands_candidates
+
             if random.random() > self.random_degree ** 3:
                 if equip == 'righthand':
                     candidates = [c for c in candidates if c.get_bit('weapon')]
@@ -3360,12 +3691,7 @@ class UnitObject(TableObject):
             self.secondary = SkillsetObject.MATH
             return
 
-        generic_jobs = [
-            JobObject.get_by_name(name) for name in JobObject.GENERIC_NAMES
-            if name.lower()[:3] != 'squ']
-        generic_jobs = sorted(
-            generic_jobs, key=lambda j: (j.get_jp_total(),
-                                         j.signature))
+        generic_jobs = JobObject.ranked_generic_jobs_candidates
 
         if (self.job.is_generic
                 and not self.job.index == JobObject.SQUIRE_INDEX):
@@ -3523,6 +3849,9 @@ class UnitObject(TableObject):
             self.palette = 0
 
     def randomize(self):
+        if not self.is_present:
+            return
+
         self.randomize_job()
         if not self.is_valid:
             return
@@ -3579,10 +3908,9 @@ class UnitObject(TableObject):
                 self.preclean()
 
     def cleanup(self):
-        equips = ['head', 'body', 'accessory', 'righthand', 'lefthand']
-        for equip in equips:
+        for equip in UnitObject.EQUIPMENT_ATTRS:
             if (self.old_data['graphic'] == self.MONSTER_GRAPHIC
-                    and not self.is_monster
+                    and self.entd.is_valid and not self.is_monster
                     and getattr(self, equip) in (0, 0xff)):
                 setattr(self, equip, 0xfe)
 
@@ -3652,9 +3980,20 @@ class ENTDObject(TableObject):
     WIEGRAF = {0x190, 0x1a8, 0x1b0}
     VELIUS = 0x1b0
 
+    FINAL_BATTLE = 0x1b9
+    CEMETARY = 0x134
+
     @classproperty
     def after_order(self):
         return [JobReqObject]
+
+    @classmethod
+    def get_unused(self):
+        unused = sorted(set(range(0x100, 0x200)) -
+                        {enc.entd_index for enc in EncounterObject.every})
+        unused = [ENTDObject.get(i) for i in unused]
+        unused = [e for e in unused if not e.is_valid]
+        return unused[-1]
 
     @cached_property
     def units(self):
@@ -3676,9 +4015,13 @@ class ENTDObject(TableObject):
         return [JobObject.get(u.old_data['job_index']) for u in self.units
                 if u.is_present_old]
 
-    @property
+    @cached_property
     def is_valid(self):
         return self.index in self.VALID_INDEXES
+
+    @clached_property
+    def valid_entds(self):
+        return [e for e in self.every if e.is_valid]
 
     @property
     def present_units(self):
@@ -3735,8 +4078,7 @@ class ENTDObject(TableObject):
                 template = random.choice(templates)
                 for attr in template.old_data:
                     template_value = template.old_data[attr]
-                    if (attr in ('head', 'body', 'accessory',
-                                 'lefthand', 'righthand', 'secondary')
+                    if (attr in UnitObject.EQUIPMENT_ATTRS + ['secondary']
                             and template_value in (0, 0xff)):
                         setattr(spare, attr, 0xfe)
                     elif (attr in ('reaction', 'support', 'movement')
@@ -3891,15 +4233,93 @@ class ENTDObject(TableObject):
         assert len(self.sprites) <= max(len(self.old_sprites), 9)
 
 
-class PropositionObject(TableObject):
-    def cleanup(self):
-        if 1 <= self.unlocked <= 5:
-            self.unlocked = 1
-
-
-class PropositionJPObject(TableObject): pass
 class FormationPaletteObject(TableObject): pass
 class SpritePaletteObject(TableObject): pass
+
+
+def load_event_patch(filename):
+    patches = {}
+    key = None
+    for line in read_lines_nocomment(filename):
+        while '  ' in line:
+            line = line.replace('  ', ' ')
+        if line[0] == '!':
+            _, name, index, pointer, _ = line.split()
+            index, pointer = int(index, 0x10), int(pointer, 0x10)
+            key = (name, index, pointer)
+            patches[key] = ''
+        else:
+            patches[key] += line + '\n'
+
+    for key in sorted(patches):
+        name, index, pointer = key
+        obj = [o for o in ALL_OBJECTS if o.__name__ == name][0]
+        obj = obj.get(index)
+        assert obj.pointer == pointer
+        obj.load_patch(patches[key].strip())
+
+
+def replace_ending():
+    load_event_patch(path.join(tblpath, 'patch_ending.txt'))
+    encounter = EncounterObject.get(EncounterObject.ENDING)
+    encounter.following = 0
+    encounter.music = encounter.ENDING_MUSIC
+    delita = [u for u in encounter.units if u.character_name == 'Delita'][0]
+    ovelia = [u for u in encounter.units if u.character_name == 'Ovelia'][0]
+    chocobo = [u for u in encounter.units
+               if u.old_sprite_id == UnitObject.CHOCOBO_SPRITE_ID][0]
+    chocobo.set_sprite(UnitObject.CHOCOBO_SPRITE_ID)
+    ramza = [u for u in encounter.units if u.character_name == 'Ramza'][0]
+    ramza.set_bit('always_present', False)
+    ramza.set_bit('load_formation', True)
+    ramza.set_bit('control', True)
+    ramza.set_bit('enemy_team', False)
+    delita.set_bit('enemy_team', True)
+    chocobo.unknown4 = 0x400
+    ovelia.unknown4 = 0x400
+    chocobo.behavior = 8
+    ovelia.behavior = 8
+    delita.behavior = 0x58
+    ramza.unit_id = 3
+    delita.target_id = ramza.unit_id
+
+    knives = range(1, 0x0B)
+    knives = [k for k in ItemObject.ranked if k.index in knives]
+    for attr in ["lefthand", "righthand", "head", "body", "accessory"]:
+        setattr(delita, attr, 0xFE)
+        setattr(ovelia, attr, 0xFE)
+        setattr(chocobo, attr, 0)
+    ovelia.righthand = random.choice(knives).index
+
+    entd = ENTDObject.get(ENTDObject.FINAL_BATTLE)
+    henchmen = [u for u in entd.units if 3 <= u.index % 0x10 <= 6]
+    assert len(henchmen) == 4
+    assert len({u.sprite_id for u in henchmen}) == 1
+    used_graphics = sorted(set([
+        u.sprite_id for u in UnitObject.every if u.is_valid and u.is_present
+        and u.sprite_id not in henchmen and not u.has_generic_sprite]))
+    chosen = random.sample(used_graphics, 4)
+    priest_sprite, other_sprites = (chosen[0], chosen[1:])
+    other_sprites += [u.sprite_id for u in henchmen]
+    assert len(other_sprites) == 7
+    random.shuffle(other_sprites)
+
+    cemetary = ENTDObject.get(ENTDObject.CEMETARY)
+    other_units = [u for u in cemetary.units if 1 <= u.index % 0x10 <= 7]
+    priest = cemetary.units[8]
+    assert priest.index % 0x10 == 8
+    for u, g in zip(other_units, other_sprites):
+        u.set_sprite(g)
+    priest.set_sprite(priest_sprite)
+
+
+def add_bonus_battles():
+    load_event_patch(path.join(tblpath, 'patch_bonus.txt'))
+    warjilis_monsters = random.choice([True, False])
+    WorldConditionalObject.get(WorldConditionalObject.WARJILIS).insert_bonus(
+        map_index=GNSObject.WARJILIS, monsters=warjilis_monsters)
+    WorldConditionalObject.get(WorldConditionalObject.ZARGHIDAS).insert_bonus(
+        map_index=GNSObject.ZARGHIDAS, monsters=not warjilis_monsters)
 
 
 if __name__ == '__main__':
@@ -3915,6 +4335,13 @@ if __name__ == '__main__':
             }
         run_interface(ALL_OBJECTS, snes=False, codes=codes,
                       custom_degree=True, custom_difficulty=True)
+
+        load_event_patch(
+            path.join(tblpath, 'patch_battle_conditionals_base.txt'))
+        replace_ending()
+        load_event_patch(path.join(tblpath, 'patch_gauntlet.txt'))
+
+        add_bonus_battles()
 
         clean_and_write(ALL_OBJECTS)
 

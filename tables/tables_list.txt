@@ -19,16 +19,17 @@ JobJPReqObject              struct_job_jp_req.txt           56984@SCUS_942.21   
 MoveFindObject              struct_move_find.txt            8ee74@BATTLE.BIN            512
 FormationObject             struct_formation.txt            0bbd4@EVENT/ATTACK.OUT      768
 EncounterObject             struct_encounter.txt            10938@EVENT/ATTACK.OUT      512
-BattleConditionalObject     struct_battle_conditional.txt   14938@EVENT/ATTACK.OUT      146
+BattleConditionalObject     struct_conditional.txt          14938@EVENT/ATTACK.OUT      146
+WorldConditionalObject      struct_conditional.txt          30234@WORLD/WLDCORE.BIN     44
+PropositionObject           struct_proposition.txt          36380@WORLD/WLDCORE.BIN     96
+#PropositionJPObject         struct_proposition_jp.txt       36db4@WORLD/WLDCORE.BIN     8
+#PropositionGilObject        struct_proposition_gil.txt      36dc4@WORLD/WLDCORE.BIN     8
 EventObject                 empty.txt                       pointers_events.txt
 GNSObject                   empty.txt                       pointers_gns.txt
 MeshObject                  empty.txt                       pointers_meshes.txt
 TextureObject               empty.txt                       pointers_textures.txt
 UnitObject                  struct_unit.txt                 pointers_units.txt
 ENTDObject                  empty.txt                       0                           512
-PropositionObject           struct_proposition.txt          36380@WORLD/WLDCORE.BIN     96
-#PropositionJPObject         struct_proposition_jp.txt       36db4@WORLD/WLDCORE.BIN     8
-#PropositionGilObject        struct_proposition_gil.txt      36dc4@WORLD/WLDCORE.BIN     8
 FormationPaletteObject      struct_palette.txt              0f000@EVENT/UNIT.BIN        128
 SpritePaletteObject         struct_palette.txt              pointers_sprite_palettes.txt
 $characters             names_characters.txt
