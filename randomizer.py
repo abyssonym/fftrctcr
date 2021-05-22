@@ -1878,6 +1878,16 @@ class EncounterObject(TableObject):
 
     ENABLE_RECKLESS_REPLACEMENT = True
 
+    FIXED_WEATHER_ENTDS = [0x19f, 0x1b5, 0x1c2]
+    FIXED_SONGS = {0, 17, 18, 19, 20, 21, 22, 23, 24,
+                   27, 28, 29, 30, 31, 32, 33, 35, 40,
+                   41, 42, 43, 44, 45, 46, 47, 48, 49, 50,
+                   51, 52, 53, 54, 55, 56, 57, 59, 60, 63, 64, 65,
+                   69, 70, 71, 72, 73, 74, 75, 79, 98}
+    DUMMIED_SONGS = set(range(81, 97)) - FIXED_SONGS
+    CANDIDATE_SONGS = set(range(100)) - FIXED_SONGS
+    used_music = set()
+
     GARILAND = 0x9
     ENDING = 0x12b
     ENDING_MUSIC = 0x45
@@ -2090,6 +2100,41 @@ class EncounterObject(TableObject):
             if u.is_present:
                 u.find_appropriate_position()
 
+    def randomize_music(self, prefer_dummied=False):
+        if self.num_characters == 0:
+            return
+
+        if prefer_dummied:
+            candidates = sorted(self.DUMMIED_SONGS)
+        else:
+            candidates = sorted(self.CANDIDATE_SONGS)
+            if random.randint(1, 100) == 100:
+                candidates.append(35)
+
+        temp = [c for c in candidates if c not in EncounterObject.used_music]
+        if temp:
+            candidates = temp
+        else:
+            EncounterObject.used_music = set()
+
+        self.music = [m if m in self.FIXED_SONGS else random.choice(candidates)
+                      for m in self.music]
+        EncounterObject.used_music |= set(self.music)
+
+    def randomize_weather(self):
+        if self.entd_index in self.FIXED_WEATHER_ENTDS:
+            return
+
+        if self.weather <= 4:
+            if random.randint(1, 7) == 7:
+                self.night = 1
+            else:
+                self.night = 0
+            if random.randint(1, 4) == 4:
+                self.weather = random.choice([1, 2, 3, 4])
+            else:
+                self.weather = 0
+
     def randomize(self):
         if self.old_data['entd_index'] == 0:
             return
@@ -2097,6 +2142,7 @@ class EncounterObject(TableObject):
             self.replace_map()
             self.reseed('formations')
             self.generate_formations()
+        self.randomize_weather()
 
     def cleanup(self):
         for attr in self.old_data:
@@ -2111,6 +2157,14 @@ class EncounterObject(TableObject):
 
         for f in self.formations:
             assert f.map_index == self.map_index
+
+
+class MusicObject(TableObject):
+    flag = 'c'
+    flag_description = 'battle music'
+
+    def randomize(self):
+        EncounterObject.get(self.index).randomize_music()
 
 
 class ConditionalMixin(TableObject):
@@ -2322,7 +2376,7 @@ class WorldConditionalObject(ConditionalMixin):
         new_encounter.conditional_index = BattleConditionalObject.DD_END_EVENT
         new_encounter.map_index = map_index
         new_encounter.ramza = 0
-        #new_encounter.randomize_music(prefer_unused=True)
+        new_encounter.randomize_music(prefer_dummied=True)
         #new_encounter.randomize_weather()
         new_encounter.entd_index = new_entd.index
 
@@ -3093,7 +3147,6 @@ class UnitObject(TableObject):
                      7: 31, 8: 31, 9: 30, 10: 31, 11: 30, 12: 31}
 
     USED_MAPS = lange(0, 0x14b) + lange(0x180, 0x1d6)
-    FIXED_WEATHER = [0x19f, 0x1b5, 0x1c2]
 
     MONSTER_GRAPHIC = 0x82
     MALE_GRAPHIC = 0x80

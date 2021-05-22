@@ -19,6 +19,7 @@ JobJPReqObject              struct_job_jp_req.txt           56984@SCUS_942.21   
 MoveFindObject              struct_move_find.txt            8ee74@BATTLE.BIN            512
 FormationObject             struct_formation.txt            0bbd4@EVENT/ATTACK.OUT      768
 EncounterObject             struct_encounter.txt            10938@EVENT/ATTACK.OUT      512
+MusicObject                 empty.txt                       0                           512
 BattleConditionalObject     struct_conditional.txt          14938@EVENT/ATTACK.OUT      146
 WorldConditionalObject      struct_conditional.txt          30234@WORLD/WLDCORE.BIN     44
 PropositionObject           struct_proposition.txt          36380@WORLD/WLDCORE.BIN     96
