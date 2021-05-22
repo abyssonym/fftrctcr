@@ -11,6 +11,8 @@ from randomtools.interface import (
     get_activated_codes, get_flags, get_outfile,
     write_cue_file)
 
+import randomtools.xml_patch_parser as xml_patch_parser
+
 from collections import Counter, defaultdict
 from hashlib import md5
 from math import ceil
@@ -24,6 +26,9 @@ import re
 VERSION = '1'
 ALL_OBJECTS = None
 DEBUG = environ.get('DEBUG')
+
+XML_PATCH_CONFIG_FILEPATH = 'custom/xml_patches/patches.cfg'
+
 
 def lange(*args):
     return list(range(*args))
@@ -4336,6 +4341,15 @@ if __name__ == '__main__':
         run_interface(ALL_OBJECTS, snes=False, codes=codes,
                       custom_degree=True, custom_difficulty=True)
 
+        xml_directory, xml_config = path.split(XML_PATCH_CONFIG_FILEPATH)
+        xml_patches = xml_patch_parser.get_patches(xml_directory, xml_config)
+        for p in xml_patches:
+            xml_patch_parser.patch_patch(SANDBOX_PATH, p)
+
+        load_event_patch(path.join(tblpath, 'patch_fur_shop_from_start.txt'))
+        load_event_patch(
+            path.join(tblpath, 'patch_propositions_from_start.txt'))
+
         load_event_patch(
             path.join(tblpath, 'patch_battle_conditionals_base.txt'))
         replace_ending()
@@ -4344,6 +4358,9 @@ if __name__ == '__main__':
         add_bonus_battles()
 
         clean_and_write(ALL_OBJECTS)
+
+        for p in xml_patches:
+            xml_patch_parser.patch_patch(SANDBOX_PATH, p, verify=True)
 
         write_cue_file()
         finish_interface()
