@@ -22,6 +22,7 @@ EncounterObject             struct_encounter.txt            10938@EVENT/ATTACK.O
 MusicObject                 empty.txt                       0                           512
 BattleConditionalObject     struct_conditional.txt          14938@EVENT/ATTACK.OUT      146
 WorldConditionalObject      struct_conditional.txt          30234@WORLD/WLDCORE.BIN     44
+UnitNameObject              empty.txt                       pointers_unit_names.txt
 PropositionObject           struct_proposition.txt          36380@WORLD/WLDCORE.BIN     96
 #PropositionJPObject         struct_proposition_jp.txt       36db4@WORLD/WLDCORE.BIN     8
 #PropositionGilObject        struct_proposition_gil.txt      36dc4@WORLD/WLDCORE.BIN     8

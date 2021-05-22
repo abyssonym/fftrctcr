@@ -17,6 +17,7 @@ from collections import Counter, defaultdict
 from hashlib import md5
 from math import ceil
 from os import path, walk, environ
+from string import digits, ascii_lowercase, ascii_uppercase
 from sys import argv
 from traceback import format_exc
 
@@ -27,7 +28,7 @@ VERSION = '1'
 ALL_OBJECTS = None
 DEBUG = environ.get('DEBUG')
 
-XML_PATCH_CONFIG_FILEPATH = 'custom/xml_patches/patches.cfg'
+XML_PATCH_CONFIG_FILEPATH = path.join('custom', 'xml_patches', 'patches.cfg')
 
 
 def lange(*args):
@@ -2484,6 +2485,125 @@ class WorldConditionalObject(ConditionalMixin):
                 encounter.next_scene = new_encounter.scenario
 
 
+class UnitNameObject(TableObject):
+    CUSTOM_NAMES_FILEPATH = path.join('custom', 'unit_names.txt')
+    try:
+        custom_names = [line.strip() for line in open(CUSTOM_NAMES_FILEPATH)
+                        if line.strip()]
+    except FileNotFoundError:
+        print('WARNING: File not found - %s' % CUSTOM_NAMES_FILEPATH)
+        custom_names = []
+
+    CHARTABLE = dict(
+        list(enumerate(digits + ascii_uppercase + ascii_lowercase))
+        + [(0xfa, ' '), (0xd9, '~'), (0xb6, '.'), (0xc1, "'")])
+    for (k, v) in sorted(CHARTABLE.items()):
+        assert v not in CHARTABLE
+        CHARTABLE[v] = k
+
+    done_names = set()
+
+    @clached_property
+    def valid_name_lengths(self):
+        return {len(u.old_namestr) for u in UnitNameObject.every}
+
+    @clached_property
+    def candidate_names(self):
+        def remove_char(name):
+            removables = [i for (i, c) in enumerate(name)
+                          if 1 <= i <= len(name)-2 and c.lower() in "aeiou"]
+            if not removables:
+                return name[:-1]
+            i = random.choice(removables)
+            name = name[:i] + name[i+1:]
+            return name
+
+        invalid_names = {name for name in UnitNameObject.custom_names
+                         if len(name) not in UnitNameObject.valid_name_lengths}
+        revised_names = {}
+        for invalid_name in sorted(invalid_names):
+            name = invalid_name
+            if len(name) < min(UnitNameObject.valid_name_lengths):
+                continue
+            while len(name) not in UnitNameObject.valid_name_lengths:
+                name = remove_char(name)
+            revised_names[invalid_name] = name
+
+        invalid_names = {i for i in invalid_names if i not in revised_names}
+        valid_names = [name for name in UnitNameObject.custom_names
+                       if name not in invalid_names]
+        valid_names = [revised_names[name] if name in revised_names else name
+                       for name in valid_names]
+
+        return valid_names
+
+    @cached_property
+    def canonical_relative(self):
+        for u in UnitNameObject.every:
+            if u.old_namestr == self.old_namestr:
+                return u
+
+    @cached_property
+    def is_canonical(self):
+        return self.canonical_relative is self
+
+    @property
+    def name(self):
+        if not self.is_canonical:
+            return self.canonical_relative.name
+
+        namestr = (self.new_namestr if hasattr(self, 'new_namestr')
+                   else self.old_namestr)
+        return ''.join(self.CHARTABLE[c] for c in namestr)
+
+    def read_data(self, filename=None, pointer=None):
+        super().read_data(filename, pointer)
+        self.old_namestr = b''
+        f = get_open_file(self.filename)
+        f.seek(self.pointer)
+        while True:
+            c = f.read(1)
+            if c == b'\xfe':
+                break
+            self.old_namestr += c
+
+    def write_data(self, filename=None, pointer=None):
+        super().write_data(filename, pointer)
+
+        if hasattr(self.canonical_relative, 'new_namestr'):
+            new_namestr = self.canonical_relative.new_namestr
+            assert len(new_namestr) == len(self.old_namestr)
+            f = get_open_file(self.filename)
+            f.seek(self.pointer)
+            f.write(new_namestr)
+
+    def set_name(self, name):
+        old_name = name
+        name = name.replace('_', ' ')
+        if name == name.lower():
+            name = ' '.join([w[0].upper() + w[1:] if w else w
+                             for w in name.split(' ')])
+        name = bytes([self.CHARTABLE[c] for c in name])
+        assert len(name) == len(old_name)
+        self.new_namestr = name
+
+    def randomize(self):
+        if not self.is_canonical:
+            return
+
+        candidates = [name for name in UnitNameObject.candidate_names
+                      if len(name) == len(self.old_namestr)
+                      and name not in UnitNameObject.done_names]
+        if not candidates:
+            return
+
+        max_index = len(candidates)-1
+        index = random.randint(0, random.randint(0, max_index))
+        chosen = candidates[index]
+        self.set_name(chosen)
+        UnitNameObject.done_names.add(chosen)
+
+
 class PropositionObject(TableObject):
     def cleanup(self):
         if 1 <= self.unlocked <= 5:
@@ -2817,6 +2937,9 @@ class GNSObject(MapMixin):
             if index not in CUSTOM_INDEX_OPTIONS:
                 CUSTOM_INDEX_OPTIONS[index] = [None]
             CUSTOM_INDEX_OPTIONS[index].append(sorted(filepaths))
+
+    if not CUSTOM_INDEX_OPTIONS:
+        print('WARNING: No custom maps found.')
 
     WARJILIS = 42
     ZARGHIDAS = 33
