@@ -53,7 +53,14 @@ class MutateBoostMixin(TableObject):
 
 
 class AbilityObject(TableObject):
-    CHARGE_20 = 0x164
+    flag = 's'
+    mutate_attributes = {
+        'jp_cost': None,
+        }
+
+    PARASITE = 0x164
+    CHARGE_20 = 0x19d
+    BALL = 0x189
     JUMPS = lange(0x18a, 0x196)
     MP_SWITCH = 0x1bd
     SHORT_CHARGE = 0x1e2
@@ -70,6 +77,12 @@ class AbilityObject(TableObject):
             return -1
         self.preprocess()
         return self.old_data['jp_cost']
+
+    @cached_property
+    def ability_attributes(self):
+        if self.index > self.PARASITE:
+            return None
+        return AbilityAttributesObject.get(self.index)
 
     @property
     def ability_type(self):
@@ -92,6 +105,13 @@ class AbilityObject(TableObject):
         return (1 <= self.index <= self.CHARGE_20
                 and self.index not in self.JUMPS
                 and self.ability_type not in (7, 8, 9))
+
+    @property
+    def requires_sword(self):
+        if not self.ability_attributes:
+            return False
+        return (self.ability_attributes.get_bit('require_sword')
+                or self.ability_attributes.get_bit('require_materia_blade'))
 
     @clached_property
     def action_pool(self):
@@ -124,6 +144,10 @@ class AbilityObject(TableObject):
     @property
     def restores_mp(self):
         return self.index in self.MP_RESTORE_INNATES
+
+    def cleanup(self):
+        if self.jp_cost != 9999:
+            self.jp_cost = round(self.jp_cost, -1)
 
 
 class AbilityAttributesObject(MutateBoostMixin):
@@ -189,6 +213,10 @@ class AbilityAttributesObject(MutateBoostMixin):
     def cleanup(self):
         if self.range == 0 and self.old_data['range'] != 0:
             self.range = self.old_data['range']
+
+        if self.get_bit('require_materia_blade'):
+            self.set_bit('require_materia_blade', False)
+            self.set_bit('require_sword', True)
 
 
 class AbilityStatusObject(TableObject):
@@ -495,7 +523,15 @@ class JobObject(TableObject):
         return self.equips & item.equip_flag
 
     def magic_mutate_bits(self):
-        super().magic_mutate_bits(random_degree=self.random_degree ** 0.5)
+        for attr in ['start_status', 'innate_status']:
+            if random.random() > self.random_degree:
+                continue
+            value = getattr(self, attr)
+            mask = (1 << random.randint(0, 39))
+            if mask & self.VALID_START_STATUSES:
+                value ^= mask
+                setattr(self, attr, value)
+        super().magic_mutate_bits(random_degree=self.random_degree ** (1/2))
 
     def preprocess(self):
         for attr in self.old_data:
@@ -666,6 +702,8 @@ class ItemObject(MutateBoostMixin):
     CHAOS_BLADE = 0x25
     RIBBON = 0xAB
     REFLECT_MAIL = 0xB8
+    THROWN_ITEM_TYPES = (0x20, 0x21)
+    SWORD_ITEM_TYPES = (0x03, 0x04)
 
     @cached_property
     def rank(self):
@@ -714,6 +752,10 @@ class ItemObject(MutateBoostMixin):
         elif self.index in self.PRICELESS_ITEMS:
             return True
 
+    @property
+    def is_sword(self):
+        return self.item_type in self.SWORD_ITEM_TYPES
+
     def mutate_item_attributes(self):
         # Ry Edit: Item Attribute Randomizer
         random_degree = ItemAttributesObject.random_degree
@@ -743,6 +785,9 @@ class ItemObject(MutateBoostMixin):
         self.price = int(round(self.price, -1))
         if self.price > 500:
             self.price = int(round(self.price, -2))
+
+        if self.item_type in self.THROWN_ITEM_TYPES:
+            self.enemy_level = max(self.enemy_level, 5)
 
 
 class WeaponObject(MutateBoostMixin):
@@ -969,6 +1014,21 @@ class SkillsetObject(TableObject):
     @property
     def old_action_indexes(self):
         return self.get_actions(old=True)
+
+    @cached_property
+    def requires_sword(self):
+        return any(a.requires_sword for a in self.actions)
+
+    @property
+    def is_lucavi_appropriate(self):
+        if all(a.requires_sword for a in self.actions):
+            return False
+        if any(a.ability_attributes.get_bit('random_hits')
+                for a in self.actions if a.ability_attributes):
+            return False
+        if any(a.index == AbilityObject.BALL for a in self.actions):
+            return False
+        return True
 
     def set_actions(self, actions, order_new=None):
         assert 0 not in actions
@@ -1200,6 +1260,11 @@ class SkillsetObject(TableObject):
                     action_indexes[i] = chosen
 
         self.set_actions([i for i in action_indexes if i > 0], order_new=None)
+
+        if self.index in self.MATH_SKILLSETS:
+            for a in self.actions:
+                if random.random() < ((self.random_degree ** 0.65) / 2):
+                    a.ability_attributes.set_bit('math_skill', True)
 
     def skills_are_subset_of(self, other):
         return (set(self.actions) <= set(other.actions) and
@@ -2537,6 +2602,13 @@ class UnitNameObject(TableObject):
 
         return valid_names
 
+    @clached_property
+    def candidate_names_by_length(self):
+        by_length = defaultdict(list)
+        for name in self.candidate_names:
+            by_length[len(name)].append(name)
+        return by_length
+
     @cached_property
     def canonical_relative(self):
         for u in UnitNameObject.every:
@@ -2591,9 +2663,9 @@ class UnitNameObject(TableObject):
         if not self.is_canonical:
             return
 
-        candidates = [name for name in UnitNameObject.candidate_names
-                      if len(name) == len(self.old_namestr)
-                      and name not in UnitNameObject.done_names]
+        candidates = [name for name in
+                      self.candidate_names_by_length[len(self.old_namestr)]
+                      if name not in UnitNameObject.done_names]
         if not candidates:
             return
 
@@ -3276,6 +3348,9 @@ class UnitObject(TableObject):
     FEMALE_GRAPHIC = 0x81
     GENERIC_GRAPHICS = (MALE_GRAPHIC, FEMALE_GRAPHIC)
     CHOCOBO_SPRITE_ID = (0x82, 0x86)
+    NO_JOB_CHANGE = {0x91}
+
+    ORBONNE_OPENING_ENTD = 0x183
 
     EQUIPMENT_ATTRS = ['head', 'body', 'accessory', 'righthand', 'lefthand']
 
@@ -3369,6 +3444,15 @@ class UnitObject(TableObject):
                 if 5 <= i <= max_index]
         pool = [p for p in pool if set(p.old_action_indexes) != {0}]
         return pool
+
+    @property
+    def requires_sword(self):
+        if SkillsetObject.get(self.job.skillset_index).requires_sword:
+            return True
+        if (1 <= self.secondary <= 0xfd and
+                SkillsetObject.get(self.secondary).requires_sword):
+            return True
+        return False
 
     @property
     def neighbors(self):
@@ -3571,6 +3655,13 @@ class UnitObject(TableObject):
         if len(indexes) == 1:
             return GNSObject.get(list(indexes)[0])
 
+    def normalize_level(self, boost=None):
+        if not boost:
+            self.level = 0xfe
+        else:
+            self.level = 100 + boost
+            self.level = max(100, min(self.level, 199))
+
     def fix_facing(self):
         # 0: south, 1: west, 2: north, 3: east
         m = self.map
@@ -3683,6 +3774,10 @@ class UnitObject(TableObject):
             setattr(self, attr, 0x1fe)
 
     def randomize_job(self):
+        if self.old_job.index in self.NO_JOB_CHANGE:
+            assert self.job == self.old_job
+            return
+
         if hasattr(self, '_target_sprite'):
             if isinstance(self._target_sprite, UnitObject):
                 self.become_another(self._target_sprite)
@@ -3707,9 +3802,17 @@ class UnitObject(TableObject):
         neighbors = [u for u in self.neighbors
                      if u.is_present_old and u.has_generic_sprite_old]
 
+        available_sprites = self.entd.available_sprites
+        if (self.old_sprite_id == self.CHOCOBO_SPRITE_ID
+                and self.unit_id != 0xff):
+            available_sprites = [s for s in available_sprites
+                                 if not isinstance(s, UnitObject)]
+            available_sprites = [(g, j) for (g, j) in available_sprites
+                                 if g == self.MONSTER_GRAPHIC]
+
         for _ in range(10):
-            if self.entd.available_sprites:
-                test = random.choice(self.entd.available_sprites)
+            if available_sprites:
+                test = random.choice(available_sprites)
             else:
                 available_sprites = [u._target_sprite for u in self.neighbors
                                      if hasattr(u, '_target_sprite')]
@@ -3723,10 +3826,10 @@ class UnitObject(TableObject):
             self.become_another(test)
             return
 
-        available_sprites = [s for s in self.entd.available_sprites
+        available_sprites = [s for s in available_sprites
                              if not isinstance(s, UnitObject)]
 
-        while True:
+        for _ in range(1000):
             template = random.choice(neighbors)
             tg, tj = template.old_sprite_id
             candidates = [
@@ -3734,6 +3837,8 @@ class UnitObject(TableObject):
                 if (g == self.MONSTER_GRAPHIC) == (tg == self.MONSTER_GRAPHIC)]
             if candidates:
                 break
+        else:
+            import pdb; pdb.set_trace()
 
         if tg != self.MONSTER_GRAPHIC:
             self.graphic, self.job_index = random.choice(candidates)
@@ -3812,6 +3917,14 @@ class UnitObject(TableObject):
                 candidates = [c for c in candidates
                               if c.equip_flag & self.job.equips]
 
+            if equip == 'righthand' and self.requires_sword:
+                swords = [c for c in candidates if c.is_sword]
+                if (len(swords) == 0
+                        and random.random() < self.random_degree ** 0.5):
+                    candidates = [
+                        c for c in ItemObject.ranked_hands_candidates
+                        if c.is_sword]
+
             if not candidates:
                 setattr(self, equip, 0xfe)
                 continue
@@ -3844,8 +3957,13 @@ class UnitObject(TableObject):
                 old = True
             self.job.skillset.absorb_skills(
                 SkillsetObject.get(self.job.skillset.index + 1), old=old)
-            if not (self.job.is_altima and difficulty >= 1):
-                self.secondary = 0xfe
+            if not self.job.is_altima:
+                valid = {s for s in SkillsetObject.every
+                         if s.is_lucavi_appropriate}
+                pool = [s for s in self.all_used_skillsets
+                        if s in valid]
+                self.secondary = random.choice(pool).index
+                assert 1 <= self.secondary <= 0xfd
 
         if (self.job.index == JobObject.ALTIMA_PERFECT_BODY
                 and difficulty >= 1):
@@ -3864,7 +3982,7 @@ class UnitObject(TableObject):
 
             max_level = 8
             ratio = difficulty / (difficulty + 1)
-            ratio = mutate_normal(ratio, 0, 1, wide=True,
+            ratio = mutate_normal(ratio, 0, 1, wide=True, return_float=True,
                                   random_degree=self.random_degree)
             level = int(round(ratio * max_level))
 
@@ -4052,6 +4170,9 @@ class UnitObject(TableObject):
         return True
 
     def attempt_chocobo_knight(self):
+        if hasattr(self, '_chocobo_rider'):
+            return
+
         candidates = [u for u in self.neighbors if u.is_human
                       and u.allegiance == self.allegiance
                       #and u.unit_id >= 0x80
@@ -4065,6 +4186,19 @@ class UnitObject(TableObject):
             self.x = chosen.x
             self.y = chosen.y
             self.relocate_nearest_good_tile()
+
+    def check_no_collisions(self):
+        if self.map is None:
+            return True
+
+        presence = lambda u: u.is_present
+        if presence(self):
+            for u in self.neighbors:
+                if presence(u) and u is not self:
+                    if ((u.x, u.y) == (self.x, self.y)
+                            and (u.is_important or self.is_important)):
+                        return False
+        return True
 
     def preclean(self):
         self.fix_palette()
@@ -4086,7 +4220,27 @@ class UnitObject(TableObject):
                             and not hasattr(self.map, '_loaded_from'))
             except AssertionError:
                 self.relocate_nearest_good_tile()
-                self.preclean()
+                return self.preclean()
+
+        assert self.check_no_collisions()
+
+        if (self.encounter and self.encounter.num_characters and
+                self.entd.is_valid and self.is_present
+                and not self.get_bit('enemy_team')):
+            boost = random.randint(0, 3) + random.randint(0, 3)
+            boost = int(round(mutate_normal(
+                0.5, 0, 1, return_float=True,
+                random_degree=self.random_degree ** 0.5) * 6))
+            self.normalize_level(boost)
+
+        if self.entd_index in ENTDObject.NERF_ENTDS:
+            self.level = min(self.level, self.old_data['level'])
+            for attr in (['secondary', 'reaction', 'support', 'movement']
+                         + UnitObject.EQUIPMENT_ATTRS):
+                if attr == 'righthand':
+                    continue
+                if random.choice([True, False]):
+                    setattr(self, attr, 0)
 
     def cleanup(self):
         for equip in UnitObject.EQUIPMENT_ATTRS:
@@ -4103,11 +4257,7 @@ class UnitObject(TableObject):
             if hasattr(self.job, fixed_attr):
                 setattr(self, attr, getattr(self.job, fixed_attr))
 
-        if self.get_bit('always_present'):
-            for u in self.neighbors:
-                if u.get_bit('always_present') and u is not self:
-                    assert (u.x, u.y) != (self.x, self.y) or not (
-                        u.is_important or self.is_important)
+        assert self.check_no_collisions()
 
         if self.is_important and self.encounter is not None:
             assert 0 <= self.x < self.map.width
@@ -4144,6 +4294,18 @@ class UnitObject(TableObject):
             if self.get_gender() == 'female':
                 self.graphic = self.FEMALE_GRAPHIC
 
+        if (self.entd_index == self.ORBONNE_OPENING_ENTD
+                and not self.get_bit('enemy_team')):
+            self.set_bit('control', True)
+
+        if self.job.is_lucavi and self.is_valid:
+            assert 1 <= self.secondary <= 0xfd
+            if not SkillsetObject.get(self.secondary).is_lucavi_appropriate:
+                self.secondary = 0
+
+        if 'easymodo' in get_activated_codes() and self.get_bit('enemy_team'):
+            self.level = 1
+
 
 class ENTDObject(TableObject):
     flag = 'u'
@@ -4163,6 +4325,8 @@ class ENTDObject(TableObject):
 
     FINAL_BATTLE = 0x1b9
     CEMETARY = 0x134
+
+    NERF_ENTDS = {0x183, 0x184, 0x185}
 
     @classproperty
     def after_order(self):
@@ -4222,6 +4386,8 @@ class ENTDObject(TableObject):
 
     @property
     def has_chocobo_potential(self):
+        if not self.is_valid:
+            return False
         for u in self.units:
             if u.is_human and u.is_present and u.unit_id >= 0x80:
                 return True
@@ -4268,7 +4434,11 @@ class ENTDObject(TableObject):
                     else:
                         setattr(spare, attr, template_value)
                 spare.clear_cache()
-                spare.randomize_allegiance()
+                if self.index in self.NERF_ENTDS:
+                    spare.set_bit('enemy_team', False)
+                    spare.set_bit('alternate_team', False)
+                else:
+                    spare.randomize_allegiance()
                 spare.find_appropriate_position()
                 if chocobo:
                     chocobo = random.choice(UnitObject.chocobo_pool)
@@ -4281,6 +4451,7 @@ class ENTDObject(TableObject):
     def randomize_sprites(self):
         present_units = [u for u in self.present_units
                          if not hasattr(u, '_target_sprite')]
+        old_sprites = [u.old_sprite_id for u in present_units]
         preset_sprites = {u._target_sprite for u in self.units
                           if hasattr(u, '_target_sprite')
                           and isinstance(u._target_sprite, UnitObject)}
@@ -4333,7 +4504,7 @@ class ENTDObject(TableObject):
 
             has_chocobo = (UnitObject.CHOCOBO_SPRITE_ID in
                            available_sprites | new_sprites)
-            if not has_chocobo:
+            if self.is_valid and not has_chocobo:
                 has_chocobo_potential = False
                 for sprite in (sorted(available_sprites)
                                + sorted(special_sprites)):
@@ -4354,7 +4525,8 @@ class ENTDObject(TableObject):
                         continue
 
             u = random.choice(generic_units)
-            if (random.random() < self.random_degree
+            if (self.index not in self.NERF_ENTDS
+                    and random.random() < self.random_degree
                     and random.choice([True, False])):
                 new_sprite = u.get_special_sprite()
                 if (self.index in self.WIEGRAF
@@ -4372,6 +4544,14 @@ class ENTDObject(TableObject):
         self.available_sprites = sorted(available_sprites)
         self.available_sprites += sorted(special_sprites,
                                          key=lambda u: u.index)
+
+        if (UnitObject.CHOCOBO_SPRITE_ID in old_sprites and
+                self.available_sprites and not
+                any([g == UnitObject.MONSTER_GRAPHIC
+                     for (g, j) in available_sprites])):
+            max_index = len(self.available_sprites) - 1
+            index = random.randint(0, max_index)
+            self.available_sprites[index] = UnitObject.CHOCOBO_SPRITE_ID
 
     def randomize_special(self):
         generic_units = [u for u in self.present_units
@@ -4513,6 +4693,7 @@ if __name__ == '__main__':
                        and g not in [TableObject]]
         codes = {
             'novanilla': ['novanilla'],
+            'easymodo': ['easymodo'],
             }
         run_interface(ALL_OBJECTS, snes=False, codes=codes,
                       custom_degree=True, custom_difficulty=True)
