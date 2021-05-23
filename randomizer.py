@@ -229,10 +229,17 @@ class AbilityStatusObject(TableObject):
         AbilityAttributesObject.get(self.index).mutate_status()
 
 
-class JobObject(TableObject):
+class JobStatsObject(TableObject):
     flag = 'j'
     flag_description = 'job stats'
 
+
+class JobInnatesObject(TableObject):
+    flag = 'i'
+    flag_description = 'job innates'
+
+
+class JobObject(TableObject):
     GENERIC_NAMES = [
         "squire", "chemist", "knight", "archer", "monk", "priest", "wizard",
         "timemage", "summoner", "thief", "mediator", "oracle", "geomancer",
@@ -304,6 +311,10 @@ class JobObject(TableObject):
             (VALID_START_STATUSES,)*3,
         ('absorb_elem', 'nullify_elem', 'resist_elem', 'weak_elem'): (0xff,)*4,
         }
+
+    @classproperty
+    def random_degree(self):
+        return JobStatsObject.random_degree
 
     @clached_property
     def character_jobs(self):
@@ -536,15 +547,19 @@ class JobObject(TableObject):
         return self.equips & item.equip_flag
 
     def magic_mutate_bits(self):
+        if JobInnatesObject.flag not in get_flags():
+            return
+        random_degree = JobInnatesObject.random_degree
+
         for attr in ['start_status', 'innate_status']:
-            if random.random() > self.random_degree:
+            if random.random() > random_degree:
                 continue
             value = getattr(self, attr)
             mask = (1 << random.randint(0, 39))
             if mask & self.VALID_START_STATUSES:
                 value ^= mask
                 setattr(self, attr, value)
-        super().magic_mutate_bits(random_degree=self.random_degree ** (1/2))
+        super().magic_mutate_bits(random_degree=random_degree ** (1/2))
 
     def preprocess(self):
         for attr in self.old_data:
@@ -557,6 +572,8 @@ class JobObject(TableObject):
             self.skillset_index = 0x7b
 
     def randomize_innates(self):
+        random_degree = JobInnatesObject.random_degree
+
         if self.is_lucavi:
             all_supports = [i for i in AbilityObject.support_pool
                             if i.index in self.LUCAVI_INNATES
@@ -620,7 +637,7 @@ class JobObject(TableObject):
 
         elif not self.is_lucavi:
             for i, innate in enumerate(self.innates):
-                if innate != 0 and random.random() > self.random_degree ** 2:
+                if innate != 0 and random.random() > random_degree ** 2:
                     continue
                 other = random.choice(
                     self.get_similar(wide=True).old_data['innates'])
@@ -628,7 +645,7 @@ class JobObject(TableObject):
                     continue
 
                 if (other not in self.innates
-                        and random.random() > self.random_degree):
+                        and random.random() > random_degree):
                     self.innates[i] = other
                 else:
                     self.innates[i] = (
@@ -683,16 +700,17 @@ class JobObject(TableObject):
                     assert self.equips & r.equips == r.equips
 
         if self.is_lucavi:
+            random_degree = JobInnatesObject.random_degree
             self.immune_status &= (((2**40)-1) ^ self.BENEFICIAL_STATUSES)
             if random.choice([True, False]):
                 self.immune_status |= self.FAITH_STATUS
             if random.choice([True, False]):
                 self.immune_status |= self.INNOCENT_STATUS
             for i in range(40):
-                if random.random() > self.random_degree:
+                if random.random() > random_degree:
                     self.immune_status |= (
                         self.old_data['immune_status'] & (1 << i))
-            if (random.random() > self.random_degree ** 2
+            if (random.random() > random_degree ** 2
                     or random.choice([True, False])):
                 self.innate_status &= self.BENEFICIAL_STATUSES
                 self.start_status &= self.BENEFICIAL_STATUSES
@@ -735,6 +753,20 @@ class JobObject(TableObject):
                     value = oldvalue * difference
                 value = max(0, min(0xff, int(round(value))))
                 setattr(self, attr, value)
+
+        if JobInnatesObject.flag not in get_flags():
+            for attrs in self.magic_mutate_bit_attributes:
+                if not isinstance(attrs, tuple):
+                    attrs = (attrs,)
+                for attr in attrs:
+                    setattr(self, attr, self.old_data[attr])
+
+        if JobStatsObject.flag not in get_flags():
+            for attrs in self.randomselect_attributes:
+                if not isinstance(attrs, tuple):
+                    attrs = (attrs,)
+                for attr in attrs:
+                    setattr(self, attr, self.old_data[attr])
 
 
 class ItemObject(MutateBoostMixin):
@@ -826,10 +858,6 @@ class ItemObject(MutateBoostMixin):
                     if self.enemy_level <= 5:
                         self.enemy_level = 50
                     self.set_bit("rare", False)
-
-        if ItemAttributesObject.flag in get_flags():
-            self.reseed('attributes')
-            self.mutate_item_attributes()
 
     def cleanup(self):
         self.price = int(round(self.price, -1))
@@ -1000,6 +1028,10 @@ class ItemAttributesObject(MutateBoostMixin):
                 self.move = 1
             elif self.index == 0x4e:
                 self.jump = 1
+
+    def mutate(self):
+        super().mutate()
+        ItemObject.get(self.index).mutate_item_attributes()
 
 
 class SkillsetObject(TableObject):
@@ -1430,6 +1462,9 @@ class PoachObject(TableObject):
 
 
 class JobReqObject(TableObject):
+    flag = 'r'
+    flag_description = 'job requirements'
+
     BANNED_REQS = ('bar', 'dan')
     CALC_REQS = ('pri', 'wiz', 'tim', 'ora')
 
@@ -1778,7 +1813,17 @@ class JobReqObject(TableObject):
             assert job_prefix not in self.get_simplified_reqs()
 
 
-class JobJPReqObject(TableObject): pass
+class JobJPReqObject(TableObject):
+    flag = 'r'
+    ADVANCED_JP = [100, 200, 400, 700, 1100, 1600, 2200, 3000]
+
+    def preprocess(self):
+        if self.flag in get_flags():
+            self.jp = self.jp * self.random_difficulty
+        self.jp = int(round(self.jp * 2, -2) // 2)
+
+    def cleanup(self):
+        self.jp = min(self.jp, self.ADVANCED_JP[self.index])
 
 
 class MoveFindObject(TableObject):
@@ -1855,6 +1900,8 @@ class MoveFindObject(TableObject):
 
 
 class FormationObject(TableObject):
+    flag = 'f'
+
     @property
     def facing(self):
         # values with 0 rotation
@@ -1931,7 +1978,9 @@ class FormationObject(TableObject):
         tiles = self.map.get_recommended_tiles()
         max_index = len(tiles)-1
         while True:
-            index = random.randint(random.randint(0, max_index), max_index)
+            factor = 1 - (random.random() ** (1 / (self.random_degree ** 0.5)))
+            assert 0 <= factor <= 1
+            index = int(round(max_index * factor))
             x, y = tiles[index]
             if random.choice([True, False]):
                 x = max(1, min(x, self.map.width-2))
@@ -3668,6 +3717,10 @@ class UnitObject(TableObject):
             else:
                 jro = JobReqObject.get_by_job_index(job_sprite)
                 jp = jro.get_jp_total(old=True)
+                if self.entd_index not in ENTDObject.NERF_ENTDS:
+                    jp = jp * self.random_difficulty
+                else:
+                    jp /= 2
                 jp = mutate_normal(jp, 0, max(jp, max_jp),
                                    random_degree=random_degree)
                 jp = round(jp * 2, -2) // 2
@@ -3841,13 +3894,17 @@ class UnitObject(TableObject):
                 self.set_upper(True)
 
     def find_appropriate_position(self):
+        random_degree = EncounterObject.random_degree
+
         if self.is_ally:
             tiles = self.map.get_recommended_tiles_ally()
         else:
             tiles = self.map.get_recommended_tiles_enemy()
 
         max_index = len(tiles)-1
-        index = random.randint(random.randint(0, max_index), max_index)
+        factor = 1 - (random.random() ** (1 / (random_degree ** 0.5)))
+        assert 0 <= factor <= 1
+        index = int(round(max_index * factor))
         x, y = tiles[index]
 
         self.relocate(x, y)
@@ -4921,6 +4978,20 @@ def add_bonus_battles():
         map_index=GNSObject.ZARGHIDAS, monsters=not warjilis_monsters)
 
 
+def handle_patches():
+    load_event_patch(path.join(tblpath, 'patch_fur_shop_from_start.txt'))
+    load_event_patch(
+        path.join(tblpath, 'patch_propositions_from_start.txt'))
+    load_event_patch(
+        path.join(tblpath, 'patch_battle_conditionals_base.txt'))
+    replace_ending()
+
+    if 'murond_exit_patch.txt' in get_activated_patches():
+        load_event_patch(path.join(tblpath, 'patch_gauntlet.txt'))
+
+    add_bonus_battles()
+
+
 if __name__ == '__main__':
     try:
         print('FINAL FANTASY TACTICS Rumble: Chaos: >>The Crashdown<< REMAKE'
@@ -4941,16 +5012,7 @@ if __name__ == '__main__':
         for p in xml_patches:
             xml_patch_parser.patch_patch(SANDBOX_PATH, p)
 
-        load_event_patch(path.join(tblpath, 'patch_fur_shop_from_start.txt'))
-        load_event_patch(
-            path.join(tblpath, 'patch_propositions_from_start.txt'))
-
-        load_event_patch(
-            path.join(tblpath, 'patch_battle_conditionals_base.txt'))
-        replace_ending()
-        load_event_patch(path.join(tblpath, 'patch_gauntlet.txt'))
-
-        add_bonus_battles()
+        handle_patches()
 
         clean_and_write(ALL_OBJECTS)
 

@@ -1,6 +1,8 @@
 AbilityObject               struct_ability.txt              4f3f0@SCUS_942.21           512
 AbilityAttributesObject     struct_ability_attribute.txt    503f0@SCUS_942.21           357
 AbilityStatusObject         empty.txt                       0                           357
+JobStatsObject              empty.txt                       0                           160
+JobInnatesObject            empty.txt                       0                           160
 JobObject                   struct_job.txt                  518b8@SCUS_942.21           160
 ItemObject                  struct_item.txt                 536b8@SCUS_942.21           254
 WeaponObject                struct_weapon.txt               542b8@SCUS_942.21           128
@@ -36,3 +38,4 @@ ENTDObject                  empty.txt                       0                   
 FormationPaletteObject      struct_palette.txt              0f000@EVENT/UNIT.BIN        128
 SpritePaletteObject         struct_palette.txt              pointers_sprite_palettes.txt
 $characters             names_characters.txt
+.option                 murond_exit_patch.txt
