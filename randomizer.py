@@ -56,8 +56,10 @@ class AbilityObject(TableObject):
     flag = 's'
     mutate_attributes = {
         'jp_cost': None,
+        'learn_chance': None,
         }
 
+    INVITATION = 0x74
     PARASITE = 0x164
     CHARGE_20 = 0x19d
     BALL = 0x189
@@ -239,6 +241,7 @@ class JobObject(TableObject):
     SQUIRE_INDEX = 0x4a
     MIME_INDEX = 0x5d
 
+    ARC_WITCH = 0x21
     ALTIMA_NICE_BODY = 0x41
     ALTIMA_PERFECT_BODY = 0x49
 
@@ -508,7 +511,7 @@ class JobObject(TableObject):
     def name(self):
         if self.is_generic:
             return self.GENERIC_NAMES[
-                self.index-JobObject.SQUIRE_INDEX].upper()
+                self.index-JobObject.SQUIRE_INDEX]
         else:
             return 'JOB {0:0>2X}'.format(self.index)
 
@@ -631,8 +634,19 @@ class JobObject(TableObject):
                     self.innates[i] = (
                         random.choice(AbilityObject.passive_pool).index)
 
+    def randomize_arc_witch(self):
+        generics = JobObject.ranked_generic_jobs_candidates
+        for attr in self.old_data:
+            if attr == 'skillset_index':
+                continue
+            chosen = random.choice(generics)
+            setattr(self, attr, chosen.old_data[attr])
+        self.skillset_index = SkillsetObject.CHAOS
+
     def randomize(self):
         self.randomize_innates()
+        if self.index == self.ARC_WITCH:
+            self.randomize_arc_witch()
 
     def boost_stats(self, factor):
         for key in self.randomselect_attributes:
@@ -995,6 +1009,7 @@ class SkillsetObject(TableObject):
     BANNED_SKILLS = set([0x28, 0x2d, 0xdb, 0xdc] + lange(0x165, 0x16f))
     MATH_SKILLSETS = {0xa, 0xb, 0xc, 0x10}
     MATH = 0x15
+    CHAOS = 0x7c
     BANNED_ANYTHING = {0x18}  # mimic
     BANNED_SKILLSET_SHUFFLE = {0, 1, 2, 3, 6, 8, 0x11, 0x12, 0x13, 0x14, 0x15,
                                0x18, 0x34, 0x38, 0x39, 0x3b, 0x3e, 0x9c, 0xa1
@@ -3475,10 +3490,17 @@ class UnitObject(TableObject):
 
     @clached_property
     def special_unit_pool(self):
-        return [u for u in self.ranked if u.is_valid and u.rank >= 0
+        pool = [u for u in self.ranked if u.is_valid and u.rank >= 0
                 and not (u.old_job.is_generic or u.old_job.is_monster)
                 and u.old_job.old_data['skillset_index'] > 0
                 and u.get_gender() is not None]
+        balmafula = [u for u in self.ranked if u.character_name == 'Balmafula'
+                     and u.get_gender() == 'female']
+        balmafula = random.choice(balmafula)
+        max_index = len(pool) - 1
+        index = max_index // 2
+        pool.insert(index, balmafula)
+        return pool
 
     @clached_property
     def monster_pool(self):
@@ -4248,6 +4270,7 @@ class UnitObject(TableObject):
             else:
                 self.set_bit('enemy_team', False)
                 self.set_bit('alternate_team', False)
+                self.set_bit('join_after_event', True)
 
     def fix_palette(self):
         if self.graphic == self.MONSTER_GRAPHIC or not self.has_generic_sprite:
@@ -4409,6 +4432,15 @@ class UnitObject(TableObject):
                 if random.choice([True, False]):
                     setattr(self, attr, 0)
 
+        if (self.graphic != self.old_data['graphic']
+                and not self.has_generic_sprite
+                and self.entd_index not in ENTDObject.LUCAVI_ENTDS):
+            if random.random() < (self.random_degree ** 0.65) / 2:
+                self.set_bit('join_after_event', True)
+
+        if self.job.character_name == 'Ramza':
+            self.set_bit('join_after_event', False)
+
     def cleanup(self):
         for equip in UnitObject.EQUIPMENT_ATTRS:
             if (self.old_data['graphic'] == self.MONSTER_GRAPHIC
@@ -4449,10 +4481,10 @@ class UnitObject(TableObject):
             self.set_bit('female', True)
 
         if self.graphic in self.GENERIC_GRAPHICS:
-            if self.job.name == 'DANCER' and self.get_gender() == 'male':
+            if self.job.name == 'dancer' and self.get_gender() == 'male':
                 self.clear_gender()
                 self.set_bit('female', True)
-            if self.job.name == 'BARD' and self.get_gender() == 'female':
+            if self.job.name == 'bard' and self.get_gender() == 'female':
                 if self.entd_index not in ENTDObject.WIEGRAF:
                     self.clear_gender()
                     self.set_bit('male', True)
@@ -4508,9 +4540,11 @@ class ENTDObject(TableObject):
     NAMED_GENERICS = {}
 
     DEEP_DUNGEON = set(
+            [0x192] +
             lange(0xb1, 0xb5) + lange(0xc9, 0xcd) +
             lange(0xd5, 0xd9) + lange(0xe1, 0xfd))
-    SPECIAL_CASE_SPRITES = {0x192, 0x1b0, 0x1b9, 0x1c9, 0x1cb} | DEEP_DUNGEON
+    LUCAVI_ENTDS = {0x1a0, 0x1b0, 0x1b9, 0x1c9, 0x1cb}
+    SPECIAL_CASE_SPRITES = LUCAVI_ENTDS | DEEP_DUNGEON
     WIEGRAF = {0x190, 0x1a8, 0x1b0}
     VELIUS = 0x1b0
 
@@ -4834,6 +4868,19 @@ def replace_ending():
     delita.behavior = 0x58
     ramza.unit_id = 3
     delita.target_id = ramza.unit_id
+
+    if delita.job.immune_status & JobObject.INVITE_STATUS:
+        delita.job.immune_status ^= JobObject.INVITE_STATUS
+    generic_skillsets = [ss for ss in SkillsetObject.every if ss.is_generic
+                         and AbilityObject.INVITATION in ss.action_indexes]
+    if not generic_skillsets:
+        skillset = SkillsetObject.get(ramza.job.skillset_index)
+        indexes = [i for i in skillset.action_indexes if i > 0]
+        if AbilityObject.INVITATION not in indexes:
+            while len(indexes) >= 16:
+                chosen = random.choice(indexes)
+                indexes.remove(chosen)
+            skillset.set_actions(indexes + [AbilityObject.INVITATION])
 
     knives = range(1, 0x0B)
     knives = [k for k in ItemObject.ranked if k.index in knives]
