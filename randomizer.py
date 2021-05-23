@@ -1047,7 +1047,7 @@ class SkillsetObject(TableObject):
                                0x18, 0x34, 0x38, 0x39, 0x3b, 0x3e, 0x9c, 0xa1
                                } | BANNED_ANYTHING
 
-    @classproperty
+    @clached_property
     def character_skillsets(self):
         skillsets = {}
         for name in JobObject.character_jobs:
@@ -1175,7 +1175,7 @@ class SkillsetObject(TableObject):
         self.set_actions(actions)
 
     @classmethod
-    def intershuffle(self):
+    def intershuffle_skills(self):
         rsms = set()
         rsm_count = 0
         job_actions = {}
@@ -1299,6 +1299,35 @@ class SkillsetObject(TableObject):
 
             assert self.get(0x19).skills_are_subset_of(self.get(0x1a))
             assert self.get(0x1a).skills_are_subset_of(self.get(0x1b))
+
+    @classmethod
+    def intershuffle_skillsets(self):
+        def pick_best_skillset(skillsets):
+            max_skills = max({len(ss.actions) for ss in skillsets})
+            candidates = [ss for ss in skillsets
+                          if len(ss.actions) == max_skills]
+            if len(candidates) == 1:
+                return candidates[0]
+            candidates = sorted(candidates, key=lambda c: c.index)
+            return random.choice(candidates)
+
+        character_skillsets = dict(self.character_skillsets)
+        names = sorted(JobObject.STORYLINE_RECRUITABLE_NAMES)
+        shuffled_names = list(names)
+        random.shuffle(shuffled_names)
+        for sending, receiving in zip(names, shuffled_names):
+            if sending == receiving:
+                continue
+            skillsets = character_skillsets[sending]
+            best = pick_best_skillset(skillsets)
+            jobs = JobObject.character_jobs[receiving]
+            for j in jobs:
+                j.skillset_index = best.index
+
+    @classmethod
+    def intershuffle(self):
+        self.intershuffle_skills()
+        self.intershuffle_skillsets()
 
     def randomize(self):
         if self.is_altima_secondary and self.random_difficulty >= 1:
