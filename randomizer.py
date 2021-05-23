@@ -273,6 +273,9 @@ class JobObject(TableObject):
     GROUP_MONSTER = 3
     GROUP_SPECIAL = 4
 
+    LUCAVI_FACTOR = 1.3
+    ENEMY_FACTOR = 1.0
+
     RANK_OVERRIDES = {0x7b: 99999}
 
     randomselect_attributes = [
@@ -391,6 +394,13 @@ class JobObject(TableObject):
     def is_recruitable(self):
         return self.is_generic or (self.is_canonical and self.character_name in
                                    self.STORYLINE_RECRUITABLE_NAMES)
+    @property
+    def sprite_id(self):
+        if self.monster_sprite > 0:
+            job_sprite = self.monster_portrait
+        else:
+            job_sprite = self.index
+        return job_sprite
 
     @cached_property
     def intershuffle_group(self):
@@ -624,6 +634,27 @@ class JobObject(TableObject):
     def randomize(self):
         self.randomize_innates()
 
+    def boost_stats(self, factor):
+        for key in self.randomselect_attributes:
+            if isinstance(key, tuple):
+                for attr in key:
+                    value = getattr(self, attr)
+                    ratio = sum([random.random() for _ in range(3)]) / 3
+                    if attr.endswith('growth'):
+                        boost = value / (self.random_difficulty ** factor)
+                    elif attr.endswith('mult'):
+                        boost = value * (self.random_difficulty ** factor)
+                    value = (value * ratio) + (boost * (1-ratio))
+                    value = max(0, min(0xff, value))
+                    setattr(self, attr, int(round(value)))
+
+    def mutate(self):
+        super().mutate()
+        if self.is_lucavi:
+            self.boost_stats(self.LUCAVI_FACTOR)
+        elif not (self.is_generic or self.is_recruitable):
+            self.boost_stats(self.ENEMY_FACTOR)
+
     def preclean(self):
         if len(self.relatives) > 1:
             for r in self.relatives:
@@ -681,10 +712,15 @@ class JobObject(TableObject):
         if self.is_lucavi and get_difficulty() >= 1.0:
             for attr in self.mutate_attributes:
                 value = getattr(self, attr)
+                oldvalue = self.old_data[attr]
+                difference = max(value, oldvalue) / min(value, oldvalue)
+                assert difference >= 1
                 if attr.endswith('growth'):
-                    setattr(self, attr, min(value, self.old_data[attr]))
+                    value = oldvalue / difference
                 else:
-                    setattr(self, attr, max(value, self.old_data[attr]))
+                    value = oldvalue * difference
+                value = max(0, min(0xff, int(round(value))))
+                setattr(self, attr, value)
 
 
 class ItemObject(MutateBoostMixin):
@@ -3354,6 +3390,27 @@ class UnitObject(TableObject):
 
     EQUIPMENT_ATTRS = ['head', 'body', 'accessory', 'righthand', 'lefthand']
 
+    INITIAL_STAT_VALUES = {
+        'male':    {'hp':  (0x78000, 0x7ffff),
+                    'mp':  (0x38000, 0x3bfff),
+                    'spd': (0x18000, 0x18000),
+                    'pa':  (0x14000, 0x14000),
+                    'ma':  (0x10000, 0x10000),
+                   },
+        'female':  {'hp':  (0x70000, 0x77fff),
+                    'mp':  (0x3c000, 0x3ffff),
+                    'spd': (0x18000, 0x18000),
+                    'pa':  (0x10000, 0x10000),
+                    'ma':  (0x14000, 0x14000),
+                   },
+        'monster': {'hp':  (0x8c000, 0x97fff),
+                    'mp':  (0x18000, 0x23fff),
+                    'spd': (0x14000, 0x14000),
+                    'pa':  (0x14000, 0x17fff),
+                    'ma':  (0x14000, 0x17fff),
+                   },
+        }
+
     @classproperty
     def after_order(self):
         return [GNSObject, ENTDObject, SkillsetObject, JobReqObject, JobObject]
@@ -3693,6 +3750,28 @@ class UnitObject(TableObject):
         if len(indexes) == 1:
             return GNSObject.get(list(indexes)[0])
 
+    def calculate_stat_value(self, attr, level=None):
+        if level is None:
+            level = self.level
+        if not 1 <= level <= 99:
+            return
+
+        gender = self.get_gender()
+        if gender is None:
+            return
+
+        low, high = self.INITIAL_STAT_VALUES[gender][attr]
+        growth_value = getattr(self.job, '%sgrowth' % attr)
+        for i in range(1, level):
+            low += low / (growth_value + i)
+            high += high / (growth_value + i)
+
+        mult_value = getattr(self.job, '%smult' % attr)
+        low = low * mult_value / 1638400
+        high = high * mult_value / 1638400
+
+        return int(low), int(high)
+
     def normalize_level(self, boost=None):
         if not boost:
             self.level = 0xfe
@@ -3784,6 +3863,8 @@ class UnitObject(TableObject):
             return genders[0]
 
     def become_another(self, other):
+        if self is other:
+            return
         for attr in ['graphic', 'name_index', 'month', 'day',
                      'brave', 'faith', 'unlocked', 'unlocked_level',
                      'job_index', 'palette']:
@@ -3866,18 +3947,20 @@ class UnitObject(TableObject):
 
         available_sprites = [s for s in available_sprites
                              if not isinstance(s, UnitObject)]
-
-        for _ in range(1000):
+        for _ in range(0x10):
             template = random.choice(neighbors)
+            template_job = template.old_job
             tg, tj = template.old_sprite_id
             candidates = [
                 (g, j) for (g, j) in available_sprites
-                if (g == self.MONSTER_GRAPHIC) == (tg == self.MONSTER_GRAPHIC)]
+                if ((g == self.MONSTER_GRAPHIC) ==
+                    (tg == self.MONSTER_GRAPHIC))]
             if candidates:
                 break
         else:
-            print('WARNING: Sprite error.')
+            tg, tj = random.choice(available_sprites)
             candidates = available_sprites
+            template_job = [j for j in JobObject.every if j.sprite_id == tj][0]
 
         if tg != self.MONSTER_GRAPHIC:
             self.graphic, self.job_index = random.choice(candidates)
@@ -3894,7 +3977,7 @@ class UnitObject(TableObject):
             candidates = [j for j in JobObject.every
                           if j.is_monster and j.monster_portrait in mgraphics
                           and j.intershuffle_valid]
-            similar = template.old_job.get_similar(
+            similar = template_job.get_similar(
                 candidates=candidates, random_degree=self.random_degree,
                 override_outsider=True, wide=True)
             self.graphic = self.MONSTER_GRAPHIC
@@ -4233,6 +4316,16 @@ class UnitObject(TableObject):
             self.randomize_equips()
             self.randomize_handedness()
         super().randomize()
+
+    def mutate(self):
+        if 1 <= self.level <= 99:
+            level = mutate_normal(self.level, 1, 99, return_float=True,
+                                  random_degree=self.random_degree**1.5)
+            if self.get_bit('enemy_team'):
+                boost = level * (self.random_difficulty ** 0.5)
+                ratio = sum([random.random() for _ in range(3)]) / 3
+                level = (level * ratio) + (boost * (1-ratio))
+            self.level = max(1, min(99, int(round(level))))
 
     @property
     def is_standing_on_solid_ground(self):
