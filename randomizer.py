@@ -3429,6 +3429,18 @@ class UnitObject(TableObject):
                 and u.old_job.is_generic and u.old_job.is_monster]
 
     @clached_property
+    def brave_faith_unit_pool(self):
+        return self.human_unit_pool + self.special_unit_pool
+
+    @clached_property
+    def fixed_brave_faith_pool(self):
+        pool = [u for u in self.brave_faith_unit_pool
+                if all(1 <= u.old_data[attr] <= 0xfd
+                       for attr in ('brave', 'faith'))]
+        return sorted({(u.old_data['brave'], u.old_data['faith'])
+                       for u in pool})
+
+    @clached_property
     def chocobo_pool(self):
         return [u for u in self.ranked if u.is_valid
                 and u.old_sprite_id == self.CHOCOBO_SPRITE_ID]
@@ -3473,6 +3485,32 @@ class UnitObject(TableObject):
         if self.character_name == 'RANDOM GENERIC':
             return False
         return bool(self.character_name.strip())
+
+    @property
+    def has_unique_name_index(self):
+        return 1 <= self.name_index <= 0xfe
+
+    @clached_property
+    def canonical_named_units(self):
+        canon = {}
+        for u in UnitObject.every:
+            if u.has_unique_name:
+                name = u.character_name
+                if name not in canon or not canon[name].entd.is_valid:
+                    canon[u.character_name] = u
+        return canon
+
+    @property
+    def canonical_relative(self):
+        if not self.has_unique_name_index:
+            return self
+        if not names.characters[self.name_index]:
+            return self
+        return self.canonical_named_units[names.characters[self.name_index]]
+
+    @property
+    def is_canonical(self):
+        return self.canonical_relative is self
 
     @property
     def has_generic_sprite(self):
@@ -3838,7 +3876,8 @@ class UnitObject(TableObject):
             if candidates:
                 break
         else:
-            import pdb; pdb.set_trace()
+            print('WARNING: Sprite error.')
+            candidates = available_sprites
 
         if tg != self.MONSTER_GRAPHIC:
             self.graphic, self.job_index = random.choice(candidates)
@@ -4147,10 +4186,45 @@ class UnitObject(TableObject):
         else:
             self.palette = 0
 
+    def randomize_brave_faith_zodiac(self):
+        if self.has_unique_name_index and not self.is_canonical:
+            return
+
+        randomize_birthday = False
+        if not self.has_unique_name:
+            candidates = self.brave_faith_unit_pool
+            bday = random.choice(candidates)
+            if 1 <= bday.month <= 13:
+                randomize_birthday = True
+            self.brave = random.choice(candidates).old_data['brave']
+            self.faith = random.choice(candidates).old_data['faith']
+        else:
+            candidates = self.fixed_brave_faith_pool
+            brave, faith = random.choice(candidates)
+            self.brave = brave
+            brave, faith = random.choice(candidates)
+            self.faith = faith
+            randomize_birthday = True
+
+        if randomize_birthday:
+            self.month = random.randint(0, 12)
+            if self.month in self.DAYS_IN_MONTH:
+                self.day = random.randint(1, self.DAYS_IN_MONTH[self.month])
+            else:
+                self.day = 0
+
+        for attr in ['brave', 'faith']:
+            value = getattr(self, attr)
+            if 0 <= value <= 100:
+                value = mutate_normal(value, 0, 100,
+                                      random_degree=self.random_degree)
+                setattr(self, attr, value)
+
     def randomize(self):
         if not self.is_present:
             return
 
+        self.randomize_brave_faith_zodiac()
         self.randomize_job()
         if not self.is_valid:
             return
@@ -4303,8 +4377,32 @@ class UnitObject(TableObject):
             if not SkillsetObject.get(self.secondary).is_lucavi_appropriate:
                 self.secondary = 0
 
+        if not self.is_canonical:
+            for attr in ['brave', 'faith', 'month', 'day']:
+                setattr(self, attr, getattr(self.canonical_relative, attr))
+
         if 'easymodo' in get_activated_codes() and self.get_bit('enemy_team'):
             self.level = 1
+
+
+class TrophyObject(TableObject):
+    flag = 't'
+
+    @property
+    def unit(self):
+        return UnitObject.get(self.index)
+
+    def mutate(self):
+        gil = self.unit.gil
+        gil = mutate_normal(gil, 0, 0xff, random_degree=self.random_degree)
+        self.unit.gil = gil
+
+        trophy_index = self.unit.trophy
+        if 1 <= trophy_index <= 0xfd:
+            trophy = ItemObject.get(
+                trophy_index).get_similar(random_degree=self.random_degree,
+                                          wide=True)
+            self.unit.trophy = trophy.index
 
 
 class ENTDObject(TableObject):

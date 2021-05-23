@@ -31,6 +31,7 @@ GNSObject                   empty.txt                       pointers_gns.txt
 MeshObject                  empty.txt                       pointers_meshes.txt
 TextureObject               empty.txt                       pointers_textures.txt
 UnitObject                  struct_unit.txt                 pointers_units.txt
+TrophyObject                empty.txt                       0                           8192
 ENTDObject                  empty.txt                       0                           512
 FormationPaletteObject      struct_palette.txt              0f000@EVENT/UNIT.BIN        128
 SpritePaletteObject         struct_palette.txt              pointers_sprite_palettes.txt
