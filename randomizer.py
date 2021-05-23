@@ -335,6 +335,39 @@ class JobObject(TableObject):
 
         return JobObject._character_jobs
 
+    @property
+    def profile(self):
+        if not self.is_generic:
+            raise NotImplementedError
+
+        generics = [j for j in JobObject.every if j.is_generic]
+        assert self in generics
+
+        s = '/={0:=<19}=\\\n'.format(self.name.upper())
+        s += ('| {0:3} | {1:5} | {2:5} |\n'.format('', 'BASE', 'GROW'))
+        s += ('|-----+-------+-------|\n')
+        stats = ['hp', 'mp', 'pa', 'ma', 'spd']
+        for stat in stats:
+            mult_attr = '{0}mult'.format(stat)
+            grow_attr = '{0}growth'.format(stat)
+
+            f = lambda j: getattr(j, mult_attr)
+            g = lambda j: 255 - getattr(j, grow_attr)
+
+            mult_index = sorted(
+                generics, key=lambda j: (f(j), g(j))).index(self)
+            mult_rank = int(round((4*mult_index / float(len(generics)-1)))) + 1
+            assert 1 <= mult_rank <= 5
+            grow_index = sorted(
+                generics, key=lambda j: (g(j), f(j))).index(self)
+            grow_rank = int(round((4*grow_index / float(len(generics)-1)))) + 1
+            assert 1 <= grow_rank <= 5
+            s += '| {0:>3} | {1:5} | {2:5} |\n'.format(
+                stat.upper(), '*'*mult_rank, '*'*grow_rank)
+        s += '\\=====================/\n'
+
+        return s.strip()
+
     @cached_property
     def character_name(self):
         names = [n for n in self.character_jobs
@@ -1484,10 +1517,27 @@ class PoachObject(TableObject):
     flag = 't'
     flag_description = 'trophies, poaches, move-find items'
 
-    mutate_attributes = {
-        'common': ItemObject,
-        'rare': ItemObject,
-        }
+    @property
+    def monster_name(self):
+        return names.monsters[self.index]
+
+    @property
+    def item_names(self):
+        return names.items[self.common], names.items[self.rare]
+
+    def mutate(self):
+        self.common = ItemObject.get(self.common).get_similar(
+            wide=True, random_degree=self.random_degree).index
+        self.rare = ItemObject.get(self.rare).get_similar(
+            wide=True, random_degree=self.random_degree).index
+
+    def randomize(self):
+        if random.random() < self.random_degree / 2:
+            self.common, self.rare = self.rare, self.common
+
+    def __repr__(self):
+        return '{0:14} {1:15} {2:15}'.format(
+            self.monster_name, *self.item_names)
 
 
 class JobReqObject(TableObject):
@@ -1637,7 +1687,7 @@ class JobReqObject(TableObject):
         if hasattr(self, '_lockdown') and not old:
             if self._lockdown is None:
                 self._lockdown = {name: self.get_req(name) for name in names}
-            return self._lockdown
+            return dict(self._lockdown)
 
         reqs = defaultdict(int)
         done_names = set()
@@ -5021,6 +5071,22 @@ def handle_patches():
     add_bonus_battles()
 
 
+def write_spoiler():
+    spoiler_filename = '%s.txt' % get_seed()
+    f = open(spoiler_filename, 'w+')
+    f.write(JobReqObject.jobtree + '\n\n')
+    generics = sorted([j for j in JobObject.every if j.is_generic],
+                      key=lambda j: j.name)
+
+    for j in generics:
+        f.write(j.profile + '\n\n')
+
+    for p in PoachObject.every:
+        f.write(str(p) + '\n')
+
+    f.close()
+
+
 if __name__ == '__main__':
     try:
         print('FINAL FANTASY TACTICS Rumble: Chaos: >>The Crashdown<< REMAKE'
@@ -5048,6 +5114,7 @@ if __name__ == '__main__':
         for p in xml_patches:
             xml_patch_parser.patch_patch(SANDBOX_PATH, p, verify=True)
 
+        write_spoiler()
         write_cue_file()
         finish_interface()
 
