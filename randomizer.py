@@ -2140,9 +2140,17 @@ class FormationObject(TableObject):
     def generate(self, map_index, num_characters):
         self.map_index = map_index
         self.num_characters = num_characters
-        tiles = self.map.get_recommended_tiles()
-        max_index = len(tiles)-1
+        recommended_tiles = self.map.get_recommended_tiles()
+        compare_function = lambda a, b: a >= b
+        depth_tiles = self.map.get_tiles_compare_attribute(
+            'depth', 1, compare_function=compare_function)
+        surface_tiles = [t for t in recommended_tiles if t not in depth_tiles]
         while True:
+            if random.random() > self.random_degree ** 1.5:
+                tiles = surface_tiles
+            else:
+                tiles = recommended_tiles
+            max_index = len(tiles)-1
             factor = 1 - (random.random() ** (1 / (self.random_degree ** 0.7)))
             assert 0 <= factor <= 1
             index = int(round(max_index * factor))
@@ -2239,7 +2247,7 @@ class EncounterObject(TableObject):
     REPLACING_MAPS = [
         1, 4, 8, 9, 11, 14, 15, 18, 20, 21, 23, 24, 26, 37, 38,
         41, 43, 46, 48, 51, 53, 62, 65, 68, 71, 72, 73, 75,
-        76, 92, 93, 94, 95, 96, 97, 98, 99, 100, 101, 102, 104,
+        76, 92, 93, 95, 96, 97, 98, 99, 100, 101, 102, 104,
         115, 116, 117, 118, 119, 125]
     DONE_MAPS = set()
     REPLACED_MAPS = set()
@@ -3577,6 +3585,54 @@ class GNSObject(MapMixin):
                 else:
                     value = int(round(value))
                     value = '{0:0>2}'.format(value)
+                s += value + ' '
+            s = s.strip() + '\n'
+        s += 'Y = 0'
+        return s.strip()
+
+    @property
+    def pretty_elevation_map(self):
+        s = 'Y = %s\n' % (self.length-1)
+        for j in range(self.length-1, -1, -1):
+            for i in range(self.width):
+                value = self.get_tile_attribute(i, j, 'z')
+                if len(value) == 1:
+                    value = list(value)[0]
+                    value = '{0:0>2}'.format(value)
+                else:
+                    value = '??'
+                s += value + ' '
+            s = s.strip() + '\n'
+        s += 'Y = 0'
+        return s.strip()
+
+    @property
+    def pretty_depth_map(self):
+        s = 'Y = %s\n' % (self.length-1)
+        for j in range(self.length-1, -1, -1):
+            for i in range(self.width):
+                value = self.get_tile_attribute(i, j, 'depth')
+                if len(value) == 1:
+                    value = list(value)[0]
+                    value = '{0:0>2}'.format(value)
+                else:
+                    value = '??'
+                s += value + ' '
+            s = s.strip() + '\n'
+        s += 'Y = 0'
+        return s.strip()
+
+    @property
+    def pretty_terrain_map(self):
+        s = 'Y = %s\n' % (self.length-1)
+        for j in range(self.length-1, -1, -1):
+            for i in range(self.width):
+                value = self.get_tile_attribute(i, j, 'terrain_type')
+                if len(value) == 1:
+                    value = list(value)[0]
+                    value = '{0:0>2x}'.format(value)
+                else:
+                    value = '??'
                 s += value + ' '
             s = s.strip() + '\n'
         s += 'Y = 0'
