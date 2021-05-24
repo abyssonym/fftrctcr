@@ -4853,7 +4853,8 @@ class UnitObject(TableObject):
                 self.set_bit('join_after_event', True)
 
         if self.job.character_name == 'Ramza':
-            self.set_bit('join_after_event', False)
+            self.set_bit('join_after_event',
+                         self.get_bit('join_after_event', old=True))
 
     def cleanup(self):
         for equip in UnitObject.EQUIPMENT_ATTRS:
