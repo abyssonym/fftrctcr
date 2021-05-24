@@ -3722,7 +3722,10 @@ class UnitObject(TableObject):
     @cached_property
     def rank(self):
         if self.entd.avg_level is not None:
-            return self.entd.avg_level
+            rank = self.entd.avg_level
+            if self.old_job.is_lucavi:
+                rank *= 1.5
+            return rank
         return -1
 
     @clached_property
@@ -3991,7 +3994,8 @@ class UnitObject(TableObject):
 
         chosen = unit.get_similar(
             candidates=self.special_unit_pool, override_outsider=True,
-            wide=True, presorted=True, random_degree=UnitObject.random_degree)
+            wide=True, presorted=True,
+            random_degree=UnitObject.random_degree ** 1.5)
         assert chosen in self.special_unit_pool
         return chosen
 
@@ -4418,6 +4422,11 @@ class UnitObject(TableObject):
             self.secondary = SkillsetObject.MATH
             return
 
+        if self.job.index == JobObject.ALTIMA_NICE_BODY:
+            self.unlocked, self.unlocked_level = 0, 0
+            self.secondary = SkillsetObject.CHAOS
+            return
+
         generic_jobs = JobObject.ranked_generic_jobs_candidates
 
         if (self.job.is_generic
@@ -4787,7 +4796,7 @@ class UnitObject(TableObject):
                 and not self.get_bit('enemy_team')):
             self.set_bit('control', True)
 
-        if self.job.is_lucavi and self.is_valid:
+        if self.job.is_lucavi and self.is_valid and not self.job.is_altima:
             assert 1 <= self.secondary <= 0xfd
             if not SkillsetObject.get(self.secondary).is_lucavi_appropriate:
                 self.secondary = 0
@@ -5118,8 +5127,16 @@ class ENTDObject(TableObject):
         assert len(self.sprites) <= max(len(self.old_sprites), 9)
 
 
-class FormationPaletteObject(TableObject): pass
-class SpritePaletteObject(TableObject): pass
+TEST_PALETTE_INDEX = 2
+class FormationPaletteObject(TableObject):
+    def cleanup(self):
+        if DEBUG:
+            self.colors[TEST_PALETTE_INDEX] = 0x7c1f
+
+class SpritePaletteObject(TableObject):
+    def cleanup(self):
+        if DEBUG:
+            self.colors[TEST_PALETTE_INDEX] = 0x7c1f
 
 
 def load_event_patch(filename):
