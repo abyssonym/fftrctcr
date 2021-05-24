@@ -601,6 +601,8 @@ class JobObject(TableObject):
         super().magic_mutate_bits(random_degree=random_degree ** (1/2))
 
     def preprocess(self):
+        self.jump &= 0x7f
+
         for attr in self.old_data:
             if attr.endswith('growth') and self.old_data[attr] == 0:
                 setattr(self, attr, 0xff)
@@ -705,18 +707,24 @@ class JobObject(TableObject):
             self.randomize_arc_witch()
 
     def boost_stats(self, factor):
-        for key in self.randomselect_attributes:
-            if isinstance(key, tuple):
-                for attr in key:
-                    value = getattr(self, attr)
-                    ratio = sum([random.random() for _ in range(3)]) / 3
-                    if attr.endswith('growth'):
-                        boost = value / (self.random_difficulty ** factor)
-                    elif attr.endswith('mult'):
-                        boost = value * (self.random_difficulty ** factor)
-                    value = (value * ratio) + (boost * (1-ratio))
-                    value = max(0, min(0xff, value))
-                    setattr(self, attr, int(round(value)))
+        for attrs in self.randomselect_attributes:
+            if attrs in ['move', 'jump']:
+                random_difficulty = self.random_difficulty ** 0.5
+            else:
+                random_difficulty = self.random_difficulty
+
+            if not isinstance(attrs, tuple):
+                attrs = (attrs,)
+            for attr in attrs:
+                value = getattr(self, attr)
+                ratio = sum([random.random() for _ in range(3)]) / 3
+                if attr.endswith('growth'):
+                    boost = value / (random_difficulty ** factor)
+                elif attr.endswith('mult'):
+                    boost = value * (random_difficulty ** factor)
+                value = (value * ratio) + (boost * (1-ratio))
+                value = max(0, min(0xff, value))
+                setattr(self, attr, int(round(value)))
 
     def mutate(self):
         super().mutate()
@@ -726,6 +734,18 @@ class JobObject(TableObject):
             self.boost_stats(self.ENEMY_FACTOR)
 
     def preclean(self):
+        for attr in ('move', 'jump'):
+            value = getattr(self, attr)
+            if value < 3:
+                if random.random() > self.random_degree ** 2:
+                    value = max(value, 3)
+                else:
+                    value = max(value, 2)
+                setattr(self, attr, value)
+
+        if self.old_data['jump'] & 0x80:
+            self.jump |= 0x80
+
         if len(self.relatives) > 1:
             for r in self.relatives:
                 my_equips = self.old_data['equips']
