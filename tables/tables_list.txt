@@ -41,3 +41,4 @@ $characters             names_characters.txt
 $items                  names_items.txt
 $monsters               names_monsters.txt
 .option                 murond_exit_patch.txt
+.option                 automash_dialogue.txt

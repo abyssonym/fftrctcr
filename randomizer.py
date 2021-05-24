@@ -54,6 +54,8 @@ class MutateBoostMixin(TableObject):
 
 class AbilityObject(TableObject):
     flag = 's'
+    custom_random_enable = flag
+
     mutate_attributes = {
         'jp_cost': None,
         'learn_chance': None,
@@ -155,6 +157,7 @@ class AbilityObject(TableObject):
 class AbilityAttributesObject(MutateBoostMixin):
     flag = 'a'
     flag_description = 'abilities'
+    custom_random_enable = flag
 
     # Ry Edit: List of formulas that should be able to inflict status
     STATUS_FORMULAS = [1, 8, 9, 0xa, 0xb, 0xd, 0xe, 0x1e, 0x1f, 0x20, 0x21,
@@ -224,6 +227,7 @@ class AbilityAttributesObject(MutateBoostMixin):
 class AbilityStatusObject(TableObject):
     flag = 'y'
     flag_description = 'ability/weapon status effects and procs'
+    custom_random_enable = flag
 
     def mutate(self):
         AbilityAttributesObject.get(self.index).mutate_status()
@@ -232,11 +236,13 @@ class AbilityStatusObject(TableObject):
 class JobStatsObject(TableObject):
     flag = 'j'
     flag_description = 'job stats'
+    custom_random_enable = flag
 
 
 class JobInnatesObject(TableObject):
     flag = 'i'
     flag_description = 'job innates'
+    custom_random_enable = flag
 
 
 class JobObject(TableObject):
@@ -801,10 +807,19 @@ class JobObject(TableObject):
                 for attr in attrs:
                     setattr(self, attr, self.old_data[attr])
 
+        if ('easymodo' in get_activated_codes() and not
+                (self.is_generic or self.canonical_relative.is_recruitable)):
+            for attr in self.old_data:
+                if attr.endswith('growth'):
+                    setattr(self, attr, 0xff)
+                elif attr.endswith('mult'):
+                    setattr(self, attr, 0)
+
 
 class ItemObject(MutateBoostMixin):
     flag = 'p'
     flag_description = 'shop item availability'
+    custom_random_enable = flag
 
     mutate_attributes = {
         'price': (0, 65000),
@@ -903,6 +918,7 @@ class ItemObject(MutateBoostMixin):
 
 class WeaponObject(MutateBoostMixin):
     flag = 'w'
+    custom_random_enable = flag
 
     mutate_attributes = {
         'range': None,
@@ -953,6 +969,7 @@ class WeaponObject(MutateBoostMixin):
 
 class WeaponStatusObject(TableObject):
     flag = 'y'
+    custom_random_enable = flag
 
     def mutate(self):
         if random.choice([True, False]):
@@ -965,6 +982,7 @@ class WeaponStatusObject(TableObject):
 
 class ShieldObject(TableObject):
     flag = 'w'
+    custom_random_enable = flag
 
     mutate_attributes = {
         'physical_evade': (0, 0x50),
@@ -973,6 +991,7 @@ class ShieldObject(TableObject):
 
 class ArmorObject(TableObject):
     flag = 'w'
+    custom_random_enable = flag
 
     mutate_attributes = {
         'hp_bonus': (0, 0xfd),
@@ -981,6 +1000,7 @@ class ArmorObject(TableObject):
 
 class AccessoryObject(TableObject):
     flag = 'w'
+    custom_random_enable = flag
 
     mutate_attributes = {
         'physical_evade': (0, 0x3c),
@@ -989,6 +1009,7 @@ class AccessoryObject(TableObject):
 
 class ChemistItemObject(TableObject):
     flag = 'w'
+    custom_random_enable = flag
 
     mutate_attributes = {
         'zval': (1, 0xfd),
@@ -997,6 +1018,7 @@ class ChemistItemObject(TableObject):
 
 class InflictStatusObject(TableObject):
     flag = 'y'
+    custom_random_enable = flag
 
     @property
     def is_crystallize(self):
@@ -1034,6 +1056,7 @@ class InflictStatusObject(TableObject):
 class ItemAttributesObject(MutateBoostMixin):
     flag = 'w'
     flag_description = 'weapon and item stats'
+    custom_random_enable = flag
 
     mutate_attributes = {
         'pa': (1, 0xfd),
@@ -1070,6 +1093,7 @@ class ItemAttributesObject(MutateBoostMixin):
 class SkillsetObject(TableObject):
     flag = 's'
     flag_description = 'job skillsets'
+    custom_random_enable = flag
 
     BANNED_SKILLS = set([0x28, 0x2d, 0xdb, 0xdc] + lange(0x165, 0x16f))
     MATH_SKILLSETS = {0xa, 0xb, 0xc, 0x10}
@@ -1430,7 +1454,8 @@ class SkillsetObject(TableObject):
 
 
 class MonsterSkillsObject(TableObject):
-    flag = 'j'
+    flag = 's'
+    custom_random_enable = flag
 
     CHOCOBO_SKILLSET_INDEX = 0xb0
 
@@ -1463,8 +1488,14 @@ class MonsterSkillsObject(TableObject):
         return [AbilityObject.get(i) for i in self.skill_indexes if i > 0]
 
     def set_skill_indexes(self, indexes):
+        temp = []
+        for i in indexes:
+            if i not in temp:
+                temp.append(i)
+        indexes = temp
         self.attackbytes = [i & 0xff for i in indexes]
         self.highbits = 0
+        done_skills = set()
         for (i, skill) in enumerate(indexes):
             if skill & 0x100:
                 self.highbits |= (1 << (7-i))
@@ -1516,6 +1547,7 @@ class MonsterSkillsObject(TableObject):
 class PoachObject(TableObject):
     flag = 't'
     flag_description = 'trophies, poaches, move-find items'
+    custom_random_enable = flag
 
     @property
     def monster_name(self):
@@ -1543,6 +1575,7 @@ class PoachObject(TableObject):
 class JobReqObject(TableObject):
     flag = 'r'
     flag_description = 'job requirements'
+    custom_random_enable = flag
 
     BANNED_REQS = ('bar', 'dan')
     CALC_REQS = ('pri', 'wiz', 'tim', 'ora')
@@ -1894,6 +1927,8 @@ class JobReqObject(TableObject):
 
 class JobJPReqObject(TableObject):
     flag = 'r'
+    custom_random_enable = flag
+
     ADVANCED_JP = [100, 200, 400, 700, 1100, 1600, 2200, 3000]
 
     def preprocess(self):
@@ -1907,6 +1942,8 @@ class JobJPReqObject(TableObject):
 
 class MoveFindObject(TableObject):
     flag = 't'
+    custom_random_enable = flag
+
     done_locations = {}
     valid_locations = {}
 
@@ -1980,6 +2017,7 @@ class MoveFindObject(TableObject):
 
 class FormationObject(TableObject):
     flag = 'f'
+    custom_random_enable = flag
 
     @property
     def facing(self):
@@ -2057,7 +2095,7 @@ class FormationObject(TableObject):
         tiles = self.map.get_recommended_tiles()
         max_index = len(tiles)-1
         while True:
-            factor = 1 - (random.random() ** (1 / (self.random_degree ** 0.5)))
+            factor = 1 - (random.random() ** (1 / (self.random_degree ** 0.7)))
             assert 0 <= factor <= 1
             index = int(round(max_index * factor))
             x, y = tiles[index]
@@ -2120,8 +2158,7 @@ class FormationObject(TableObject):
 class EncounterObject(TableObject):
     flag = 'f'
     flag_description = 'enemy and ally formations'
-
-    ENABLE_RECKLESS_REPLACEMENT = True
+    custom_random_enable = flag
 
     FIXED_WEATHER_ENTDS = [0x19f, 0x1b5, 0x1c2]
     FIXED_SONGS = {0, 17, 18, 19, 20, 21, 22, 23, 24,
@@ -2181,7 +2218,7 @@ class EncounterObject(TableObject):
     def is_replaceable(self):
         if self.entd_index in self.NO_REPLACE:
             return False
-        if self.ENABLE_RECKLESS_REPLACEMENT:
+        if 'bigtide' in get_activated_codes():
             return (self.num_characters
                         and not hasattr(self.map, '_loaded_from'))
         return (self.num_characters and not self.movements
@@ -2276,7 +2313,7 @@ class EncounterObject(TableObject):
                                       u.unit_id in self.movements):
                 self.map.set_occupied(u.old_data['x'], u.old_data['y'])
                 continue
-        if self.movements and not self.ENABLE_RECKLESS_REPLACEMENT:
+        if self.movements and 'bigtide' not in get_activated_codes():
             for u in self.units:
                 if u.unit_id in self.movements:
                     self.map.set_occupied(u.old_data['x'], u.old_data['y'])
@@ -2289,11 +2326,19 @@ class EncounterObject(TableObject):
             self.old_data['formation_indexes'] = self.formation_indexes
             self.clear_cache()
 
+    def is_map_movement_compatible(self, c):
+        movement_tiles = set(self.movements.values())
+        gns = GNSObject.get_by_map_index(c)
+        valid_tiles = set(
+            gns.get_tiles_compare_attribute('bad_regardless', False))
+        return valid_tiles >= movement_tiles
+
     def replace_map(self):
         if not self.is_replaceable:
             return
 
-        if random.random() > self.random_degree ** 0.25:
+        if (random.random() > self.random_degree ** 0.25
+                and 'novanilla' not in get_activated_codes()):
             return
 
         candidates = [map_index for map_index in self.REPLACING_MAPS
@@ -2301,6 +2346,12 @@ class EncounterObject(TableObject):
         if not candidates:
             candidates = [map_index for map_index in sorted(self.REPLACED_MAPS)
                           if map_index not in self.DONE_MAPS]
+        if self.movements:
+            candidates = [c for c in candidates
+                          if self.is_map_movement_compatible(c)]
+
+        if not candidates:
+            return
 
         chosen = random.choice(candidates)
         self.map_index = chosen
@@ -2340,7 +2391,7 @@ class EncounterObject(TableObject):
         random.shuffle(units)
         for u in units:
             if (u.unit_id in self.movements
-                    and not self.ENABLE_RECKLESS_REPLACEMENT):
+                    and 'bigtide' not in get_activated_codes()):
                 continue
             if u.is_present:
                 u.find_appropriate_position()
@@ -2390,7 +2441,8 @@ class EncounterObject(TableObject):
         self.randomize_weather()
 
     def cleanup(self):
-        for attr in self.old_data:
+        for attr in ['music', 'weather', 'night',
+                'formation_indexes', 'map_index']:
             if self.old_data[attr] == self.canonical_relative.old_data[attr]:
                 setattr(self, attr, getattr(self.canonical_relative, attr))
         if not self.is_canonical:
@@ -2407,6 +2459,7 @@ class EncounterObject(TableObject):
 class MusicObject(TableObject):
     flag = 'c'
     flag_description = 'battle music'
+    custom_random_enable = flag
 
     def randomize(self):
         EncounterObject.get(self.index).randomize_music()
@@ -2622,7 +2675,7 @@ class WorldConditionalObject(ConditionalMixin):
         new_encounter.map_index = map_index
         new_encounter.ramza = 0
         new_encounter.randomize_music(prefer_dummied=True)
-        #new_encounter.randomize_weather()
+        new_encounter.randomize_weather()
         new_encounter.entd_index = new_entd.index
 
         for u in new_encounter.units:
@@ -2718,6 +2771,7 @@ class WorldConditionalObject(ConditionalMixin):
             p.level = random.randint(1, random.randint(1, 50))
             p.set_bit('enemy_team', True)
             p.set_bit('always_present', True)
+            p.set_bit('control', True)
             p.clear_cache()
 
         new_encounter.clear_cache()
@@ -2865,6 +2919,8 @@ class PropositionJPObject(TableObject): pass
 
 
 class EventObject(TableObject):
+    ENDING_SCENES = (0x12c, 0x147)
+
     PARAMETER_FILENAME = path.join(tblpath, 'parameters_events.txt')
     PARAMETERS = {}
     for line in read_lines_nocomment(PARAMETER_FILENAME):
@@ -2996,11 +3052,21 @@ class EventObject(TableObject):
             raise Exception('Undefined messages.')
 
     def automash(self):
+        if self.index in self.ENDING_SCENES:
+            return
+
         for i in range(len(self.instructions)):
             code, parameters = self.instructions[i]
             if code == 0x10:
                 parameters = list(parameters)
                 assert parameters[0] == 0x10
+                message_index = parameters[2]
+                try:
+                    message = self.messages[message_index-1]
+                except IndexError:
+                    continue
+                if b'\xfb' in message and b'\xfc' in message:
+                    continue
                 box_type = parameters[1]
                 box_type &= 0x8f
                 parameters[1] = box_type
@@ -3020,7 +3086,8 @@ class EventObject(TableObject):
 
     def preprocess(self):
         self.cull_messages()
-        self.automash()
+        if 'automash_dialogue.txt' in get_activated_patches():
+            self.automash()
 
     def load_patch(self, patch):
         if hasattr(self, '_no_modify') and self._no_modify:
@@ -3168,8 +3235,9 @@ class MapMixin(TableObject):
 
 
 class GNSObject(MapMixin):
-    flag = 'q'
+    flag = 'm'
     flag_description = 'custom maps'
+    custom_random_enable = flag
 
     CUSTOM_MAP_PATH = path.join('custom', 'maps')
     CUSTOM_INDEX_OPTIONS = {}
@@ -3203,6 +3271,39 @@ class GNSObject(MapMixin):
     def primary_meshes(self):
         return [m for m in self.meshes if m.tiles]
 
+    @cached_property
+    def zones(self):
+        tiles = self.get_tiles_compare_attribute('no_pass', False)
+        done = set()
+        zones = []
+        while tiles:
+            seed = random.choice(tiles)
+            zone = {seed}
+            while True:
+                adjacent = {(x, y) for (x, y) in tiles if
+                            (x+1, y) in zone or (x-1, y) in zone or
+                            (x, y+1) in zone or (x, y-1) in zone}
+                if adjacent <= zone:
+                    break
+                zone |= adjacent
+            zones.append(zone)
+            tiles = [t for t in tiles if t not in zone]
+
+        if len(zones) > 1:
+            assert (sum(len(z) for z in zones) ==
+                        len({t for z in zones for t in z}))
+            max_area = max(len(z) for z in zones)
+            big_zones = [z for z in zones if len(z) == max_area]
+            big_zones = sorted(big_zones, key=lambda z: min(z))
+            chosen_zone = random.choice(big_zones)
+            for z in zones:
+                if z is chosen_zone:
+                    continue
+                for t in z:
+                    self.set_unreachable(*t)
+
+        return zones
+
     @property
     def width(self):
         widths = {m.width for m in self.primary_meshes}
@@ -3212,6 +3313,10 @@ class GNSObject(MapMixin):
     def length(self):
         lengths = {m.length for m in self.primary_meshes}
         return max(lengths)
+
+    def read_data(self, filename=None, pointer=None):
+        super().read_data(filename, pointer)
+        self.zones
 
     def randomize(self):
         if self.map_index not in self.CUSTOM_INDEX_OPTIONS:
@@ -3289,6 +3394,16 @@ class GNSObject(MapMixin):
                 t.occupied = True
                 t = m.get_tile(x, y, upper=True)
                 t.occupied = True
+            except IndexError:
+                pass
+
+    def set_unreachable(self, x, y):
+        for m in self.primary_meshes:
+            try:
+                t = m.get_tile(x, y)
+                t.unreachable = True
+                t = m.get_tile(x, y, upper=True)
+                t.unreachable = True
             except IndexError:
                 pass
 
@@ -3376,7 +3491,7 @@ class GNSObject(MapMixin):
             for ex, ey in enemy_tiles:
                 distances.append(abs(x-ex) + abs(y-ey))
             distances = [1/(d**2) for d in distances]
-            clumping = 1 + sum(distances)
+            clumping = (1 + sum(distances))**2
             score = enemyval / (partyval * partyval * clumping)
             return score, sig
 
@@ -3440,13 +3555,17 @@ class MeshObject(MapMixin):
 
         @property
         def bad(self):
-            if self.occupied or self.unreachable:
+            if self.occupied:
                 return True
             return self.bad_regardless
 
         @property
+        def no_pass(self):
+            return self.impassable | self.uncursorable
+
+        @property
         def bad_regardless(self):
-            if self.impassable | self.uncursorable:
+            if self.no_pass:
                 return True
             if self.slope_height > 2:
                 return True
@@ -3455,10 +3574,9 @@ class MeshObject(MapMixin):
             if self.terrain_type in [0x12, 0x24]:
                 # bad terrain : lava, water plant
                 return True
+            if self.unreachable:
+                return True
             return False
-
-        def set_unreachable(self, unreachable=True):
-            self.unreachable = unreachable
 
         @property
         def enemy(self):
@@ -3516,6 +3634,7 @@ class TextureObject(MapMixin): pass
 class UnitObject(TableObject):
     flag = 'u'
     flag_description = 'enemy and ally units'
+    custom_random_enable = flag
 
     DAYS_IN_MONTH = {1: 31, 2: 28, 3: 31, 4: 30, 5: 31, 6: 30,
                      7: 31, 8: 31, 9: 30, 10: 31, 11: 30, 12: 31}
@@ -3765,6 +3884,8 @@ class UnitObject(TableObject):
             self.job_index = random.choice(candidates).index
         elif graphic in self.GENERIC_GRAPHICS:
             self.job_index = job_sprite
+        self.graphic = graphic
+        assert sprite_id == self.sprite_id
 
     def get_similar_sprite(self, exclude_sprites=None, random_degree=None):
         if exclude_sprites is None:
@@ -3796,7 +3917,8 @@ class UnitObject(TableObject):
             else:
                 jro = JobReqObject.get_by_job_index(job_sprite)
                 jp = jro.get_jp_total(old=True)
-                if self.entd_index not in ENTDObject.NERF_ENTDS:
+                if (self.get_bit('enemy_team')
+                        and self.entd_index not in ENTDObject.NERF_ENTDS):
                     jp = jp * self.random_difficulty
                 else:
                     jp /= 2
@@ -3981,7 +4103,7 @@ class UnitObject(TableObject):
             tiles = self.map.get_recommended_tiles_enemy()
 
         max_index = len(tiles)-1
-        factor = 1 - (random.random() ** (1 / (random_degree ** 0.5)))
+        factor = 1 - (random.random() ** (1 / (random_degree ** 0.7)))
         assert 0 <= factor <= 1
         index = int(round(max_index * factor))
         x, y = tiles[index]
@@ -4280,6 +4402,9 @@ class UnitObject(TableObject):
         else:
             jp_jobs = generic_jobs
 
+        jp_jobs = sorted(jp_jobs,
+                         key=lambda j: (j.get_jp_total(), j.signature))
+
         if self.job.jobreq and self.job.jobreq.squire_only:
             jp_jobs = [JobObject.get_by_name('squire')] + jp_jobs
 
@@ -4422,7 +4547,10 @@ class UnitObject(TableObject):
             self.palette = random.choice(options)
         elif self.get_bit('enemy_team'):
             if enemy_palettes:
-                self.palette = random.choice(enemy_palettes)
+                c = Counter(enemy_palettes)
+                most = max(c.values())
+                options = [key for key in sorted(c) if c[key] == most]
+                self.palette = random.choice(options)
             else:
                 self.palette = 3
         else:
@@ -4468,8 +4596,6 @@ class UnitObject(TableObject):
 
         self.randomize_brave_faith_zodiac()
         self.randomize_job()
-        if not self.is_valid:
-            return
         if not self.get_bit('load_formation'):
             self.randomize_secondary()
             self.randomize_equips()
@@ -4559,9 +4685,11 @@ class UnitObject(TableObject):
                 random_degree=self.random_degree ** 0.5) * 6))
             self.normalize_level(boost)
 
-        if self.entd_index in ENTDObject.NERF_ENTDS:
+        if (self.entd_index in ENTDObject.NERF_ENTDS
+                and self.get_bit('enemy_team')):
             self.level = min(self.level, self.old_data['level'])
-            for attr in (['secondary', 'reaction', 'support', 'movement']
+            self.secondary = 0
+            for attr in (['reaction', 'support', 'movement']
                          + UnitObject.EQUIPMENT_ATTRS):
                 if attr == 'righthand':
                     continue
@@ -4642,12 +4770,20 @@ class UnitObject(TableObject):
             for attr in ['brave', 'faith', 'month', 'day']:
                 setattr(self, attr, getattr(self.canonical_relative, attr))
 
+        if (self.unit_id > 0 and self.encounter
+                and self.unit_id in self.encounter.movements):
+            self.set_bit('always_present',
+                         self.get_bit('always_present', old=True))
+            self.set_bit('randomly_present',
+                         self.get_bit('randomly_present', old=True))
+
         if 'easymodo' in get_activated_codes() and self.get_bit('enemy_team'):
             self.level = 1
 
 
 class TrophyObject(TableObject):
     flag = 't'
+    custom_random_enable = flag
 
     @property
     def unit(self):
@@ -4668,6 +4804,7 @@ class TrophyObject(TableObject):
 
 class ENTDObject(TableObject):
     flag = 'u'
+    custom_random_enable = flag
 
     VALID_INDEXES = (
         lange(1, 9) + lange(0xd, 0x21) + lange(0x25, 0x2d) +
@@ -5097,10 +5234,15 @@ if __name__ == '__main__':
                        and g not in [TableObject]]
         codes = {
             'novanilla': ['novanilla'],
+            'bigtide': ['bigtide'],
             'easymodo': ['easymodo'],
             }
         run_interface(ALL_OBJECTS, snes=False, codes=codes,
                       custom_degree=True, custom_difficulty=True)
+
+        for code in sorted(codes):
+            if code in get_activated_codes():
+                print('%s code activated!' % code.upper())
 
         xml_directory, xml_config = path.split(XML_PATCH_CONFIG_FILEPATH)
         xml_patches = xml_patch_parser.get_patches(xml_directory, xml_config)
