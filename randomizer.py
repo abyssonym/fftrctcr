@@ -4053,6 +4053,17 @@ class UnitObject(TableObject):
         return not (
             self.get_bit('enemy_team') or self.get_bit('alternate_team'))
 
+    @property
+    def presence(self):
+        return (self.get_bit('randomly_present'),
+                self.get_bit('always_present'), self.unit_id)
+
+    @cached_property
+    def presence_old(self):
+        return (self.get_bit('randomly_present', old=True),
+                self.get_bit('always_present', old=True),
+                self.old_data['unit_id'])
+
     @cached_property
     def is_present(self):
         return (
@@ -4413,11 +4424,9 @@ class UnitObject(TableObject):
         if random.random() < self.random_degree / 2:
             self.lefthand, self.righthand = self.righthand, self.lefthand
 
-    def randomize_secondary(self):
-        if self.job.is_monster:
-            return
-
+    def randomize_lucavi_secondary(self):
         difficulty = self.random_difficulty
+
         if self.job.is_lucavi:
             if self.job.index == JobObject.ALTIMA_PERFECT_BODY:
                 old = False
@@ -4461,8 +4470,15 @@ class UnitObject(TableObject):
         if self.job.index == JobObject.ALTIMA_NICE_BODY:
             self.unlocked, self.unlocked_level = 0, 0
             self.secondary = SkillsetObject.CHAOS
+
+    def randomize_secondary(self):
+        if self.job.is_monster:
             return
 
+        if self.job.is_lucavi:
+            return self.randomize_lucavi_secondary()
+
+        difficulty = self.random_difficulty
         generic_jobs = JobObject.ranked_generic_jobs_candidates
 
         if (self.job.is_generic
@@ -4714,19 +4730,22 @@ class UnitObject(TableObject):
         if self.map is None:
             return True
 
-        presence = lambda u: u.is_present
-        if presence(self):
+        if self.is_present:
             for u in self.neighbors:
-                if presence(u) and u is not self:
-                    if ((u.x, u.y) == (self.x, self.y)
-                            and (u.is_important or self.is_important)):
-                        return False
+                if (u.is_present and u is not self
+                        and (u.x, u.y) == (self.x, self.y)
+                        and (u.is_important or self.is_important)):
+
+                    if (u.x == u.old_data['x'] and u.y == u.old_data['y']
+                            and self.x == self.old_data['x']
+                            and self.y ==  self.old_data['y']
+                            and u.presence == u.presence_old
+                            and self.presence == self.presence_old):
+                        continue
+                    return False
         return True
 
     def preclean(self):
-        if self.flag not in get_flags():
-            return
-
         self.fix_palette()
 
         if (self.is_chocobo and self.encounter is not None
@@ -4780,9 +4799,6 @@ class UnitObject(TableObject):
             self.set_bit('join_after_event', False)
 
     def cleanup(self):
-        if self.flag not in get_flags():
-            return
-
         for equip in UnitObject.EQUIPMENT_ATTRS:
             if (self.old_data['graphic'] == self.MONSTER_GRAPHIC
                     and self.entd.is_valid and not self.is_monster
@@ -4838,7 +4854,10 @@ class UnitObject(TableObject):
             self.set_bit('control', True)
 
         if self.job.is_lucavi and self.is_valid and not self.job.is_altima:
-            assert 1 <= self.secondary <= 0xfd
+            if UnitObject.flag in get_flags():
+                assert 1 <= self.secondary <= 0xfd
+            else:
+                assert self.secondary == self.old_data['secondary']
             if not SkillsetObject.get(self.secondary).is_lucavi_appropriate:
                 self.secondary = 0
 
