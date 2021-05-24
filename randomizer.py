@@ -2149,6 +2149,9 @@ class FormationObject(TableObject):
                 k_high += 1
             window = [t for t in window
                       if z - k_low <= t.z <= z + k_high]
+            free_tiles = len(tiles) - len(window)
+            if free_tiles + num_characters <= 16:
+                continue
             if len(window) > num_characters:
                 break
             elif (len(window) == num_characters
@@ -3477,6 +3480,9 @@ class GNSObject(MapMixin):
                     if total_distance > max_distance:
                         continue
                     heatmap[j][i] += heat_values[total_distance]
+        for j in range(self.length):
+            for i in range(self.width):
+                heatmap[j][i] = round(heatmap[j][i], 8)
         return heatmap
 
     def generate_occupied_heatmap(self, attribute='occupied', max_distance=10):
@@ -3518,7 +3524,7 @@ class GNSObject(MapMixin):
                 distances.append(abs(x-ex) + abs(y-ey))
             distances = [1/(d**2) for d in distances]
             clumping = (1 + sum(distances))**2
-            score = enemyval / (partyval * partyval * clumping)
+            score = round(enemyval / (partyval * partyval * clumping), 5)
             return score, sig
 
         candidates = self.get_tiles_compare_attribute('bad', False)
@@ -4688,6 +4694,9 @@ class UnitObject(TableObject):
         return True
 
     def preclean(self):
+        if self.flag not in get_flags():
+            return
+
         self.fix_palette()
 
         if (self.is_chocobo and self.encounter is not None
@@ -4741,6 +4750,9 @@ class UnitObject(TableObject):
             self.set_bit('join_after_event', False)
 
     def cleanup(self):
+        if self.flag not in get_flags():
+            return
+
         for equip in UnitObject.EQUIPMENT_ATTRS:
             if (self.old_data['graphic'] == self.MONSTER_GRAPHIC
                     and self.entd.is_valid and not self.is_monster
