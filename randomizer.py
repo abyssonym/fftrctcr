@@ -2730,8 +2730,13 @@ class WorldConditionalObject(ConditionalMixin):
         for u in new_encounter.units:
             u.reset_blank()
 
-        partner_template = random.choice(
-            [u for u in UnitObject.special_unit_pool if u.is_human])
+        special_templates =[
+            u for u in UnitObject.special_unit_pool
+            if u.is_human and u.has_unique_name and u.is_human_old]
+        partner_template = random.choice(special_templates)
+        special_templates = [
+            u for u in special_templates if
+            u.character_name != partner_template.character_name]
         partner = new_encounter.units[0]
         partner.become_another(partner_template)
         for bitflag in [
@@ -2773,7 +2778,7 @@ class WorldConditionalObject(ConditionalMixin):
                 for attr in UnitObject.EQUIPMENT_ATTRS:
                     setattr(p, attr, 0)
         else:
-            chosen = random.choice(UnitObject.special_unit_pool)
+            chosen = random.choice(special_templates)
             jobs = random.sample(JobObject.ranked_generic_jobs_candidates,
                                  len(pinatas)-1)
             jobs.append(chosen.job)
@@ -3757,11 +3762,16 @@ class UnitObject(TableObject):
     @clached_property
     def human_unit_pool(self):
         return [u for u in self.ranked if (u.is_present or u.is_important)
-                and u.entd.is_valid and u.rank >= 0 and u.is_human]
+                and u.entd.is_valid and u.rank >= 0 and u.is_human_old]
 
     @property
     def is_human(self):
         return (self.graphic != self.MONSTER_GRAPHIC
+                and not self.job.is_lucavi)
+
+    @cached_property
+    def is_human_old(self):
+        return (self.old_data['graphic'] != self.MONSTER_GRAPHIC
                 and not self.old_job.is_lucavi)
 
     @property
