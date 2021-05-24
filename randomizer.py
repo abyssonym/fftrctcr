@@ -24,7 +24,7 @@ from traceback import format_exc
 import re
 
 
-VERSION = '1'
+VERSION = '2'
 ALL_OBJECTS = None
 DEBUG = environ.get('DEBUG')
 
