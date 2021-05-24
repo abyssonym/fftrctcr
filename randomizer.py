@@ -2033,7 +2033,8 @@ class MoveFindObject(TableObject):
         if self.map_index not in MoveFindObject.done_locations:
             MoveFindObject.done_locations[self.map_index] = set()
 
-        if random.random() < self.random_degree ** 0.5:
+        if ((self.x, self.y) == (0, 0)
+                or random.random() < self.random_degree ** 0.5):
             if self.map_index in MoveFindObject.valid_locations:
                 valid = MoveFindObject.valid_locations[self.map_index]
             else:
