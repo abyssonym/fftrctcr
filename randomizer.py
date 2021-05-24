@@ -754,6 +754,32 @@ class JobObject(TableObject):
                 self.innate_status &= self.BENEFICIAL_STATUSES
                 self.start_status &= self.BENEFICIAL_STATUSES
 
+        if self.is_generic and self.random_difficulty > 1:
+            generics = ([JobObject.get(JobObject.SQUIRE_INDEX)]
+                        + self.ranked_generic_jobs_candidates)
+            max_index = len(generics) - 1
+            index = generics.index(self)
+            ratio = 2 * index / max_index
+            assert 0 <= ratio <= 2
+
+            multiplier = (self.random_difficulty ** 0.5) - 1
+            if ratio > 1:
+                multiplier = 1 + (multiplier * (ratio-1))
+            elif ratio < 1:
+                multiplier = 1 - (multiplier * (1-ratio))
+            for attrs in self.randomselect_attributes:
+                if isinstance(attrs, tuple):
+                    for attr in attrs:
+                        variance = sum(random.random() for _ in range(3)) / 3
+                        mult = (multiplier * variance) + (1 - variance)
+                        value = getattr(self, attr)
+                        if attr.endswith('growth'):
+                            value /= mult
+                        if attr.endswith('mult'):
+                            value *= mult
+                        value = max(0, min(0xff, int(round(value))))
+                        setattr(self, attr, value)
+
     def cleanup(self):
         if not self.is_canonical:
             canonical = self.canonical_relative
