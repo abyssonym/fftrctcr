@@ -119,7 +119,8 @@ class AbilityObject(TableObject):
 
     @clached_property
     def action_pool(self):
-        return [a for a in AbilityObject.ranked if a.is_action and a.rank >= 0]
+        return [a for a in AbilityObject.ranked
+                if a.is_action and a.rank >= 0 and a.ability_attributes]
 
     @clached_property
     def reaction_pool(self):
@@ -4382,8 +4383,7 @@ class UnitObject(TableObject):
                     candidates = [c for c in candidates if c.get_bit(equip)]
 
             if random.random() > self.random_degree ** 2:
-                candidates = [c for c in candidates
-                              if c.equip_flag & self.job.equips]
+                candidates = [c for c in candidates if self.job.can_equip(c)]
 
             if equip == 'righthand' and self.requires_sword:
                 swords = [c for c in candidates if c.is_sword]
@@ -4816,8 +4816,7 @@ class UnitObject(TableObject):
                 self.unlocked_level = altima.unlocked_level
 
         if (self.entd_index in ENTDObject.WIEGRAF and
-                self.has_generic_sprite and
-                self.get_bit('enemy_team') and self.get_gender() == 'male'):
+                self.has_generic_sprite and self.get_gender() == 'male'):
             self.clear_gender()
             self.set_bit('female', True)
 
