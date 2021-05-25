@@ -4859,11 +4859,14 @@ class UnitObject(TableObject):
             boost = int(round(mutate_normal(
                 0.5, 0, 1, return_float=True,
                 random_degree=self.random_degree ** 0.5) * 6))
-            self.normalize_level(boost)
+            if self.entd_index not in ENTDObject.NERF_ENTDS:
+                self.normalize_level(boost)
 
         if (self.entd_index in ENTDObject.NERF_ENTDS
                 and self.get_bit('enemy_team')):
             self.level = min(self.level, self.old_data['level'])
+            if self.level >= 100:
+                self.level = 1
             self.secondary = 0
             for attr in (['reaction', 'support', 'movement']
                          + UnitObject.EQUIPMENT_ATTRS):
