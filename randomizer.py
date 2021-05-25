@@ -259,9 +259,9 @@ class JobObject(TableObject):
     ALTIMA_NICE_BODY = 0x41
     ALTIMA_PERFECT_BODY = 0x49
 
-    VALID_INNATE_STATUSES = 0xcafce12a10
+    VALID_INNATE_STATUSES = 0xcafcc12a10
     VALID_START_STATUSES = (VALID_INNATE_STATUSES |
-                            0x1402100000)
+                            0x1402300000)
     BENEFICIAL_STATUSES =   0xc278600000
     RERAISE_STATUS =        0x0000200000
     FAITH_STATUS =          0x8000000000
