@@ -2234,15 +2234,6 @@ class EncounterObject(TableObject):
     ENDING_MUSIC = 0x45
 
     NO_REPLACE = {0x184, 0x185, 0x1c2}
-    MAP_MOVEMENTS_FILENAME = path.join(tblpath, 'map_movements.txt')
-    map_movements = defaultdict(list)
-    for line in open(MAP_MOVEMENTS_FILENAME):
-        map_index, data = line.split()
-        map_index = int(map_index, 0x10)
-        unit, x, y = data.split(',')
-        unit = int(unit, 0x10)
-        x, y = int(x), int(y)
-        map_movements[map_index].append((unit, x, y))
 
     REPLACING_MAPS = [
         1, 4, 8, 9, 11, 14, 15, 18, 20, 21, 23, 24, 26, 37, 38,
@@ -2280,7 +2271,7 @@ class EncounterObject(TableObject):
         if 'bigtide' in get_activated_codes():
             return (self.num_characters
                         and not hasattr(self.map, '_loaded_from'))
-        return (self.num_characters and not self.movements
+        return (self.num_characters and not self.has_movements
                     and not hasattr(self.map, '_loaded_from'))
 
     @cached_property
@@ -2297,8 +2288,26 @@ class EncounterObject(TableObject):
 
     @property
     def movements(self):
-        return {u: (x, y) for (u, x, y) in
-                self.map_movements[self.old_data['map_index']]}
+        movements = defaultdict(set)
+        if self.conditional:
+            for e in self.conditional.events:
+                for (code, parameters) in e.instructions:
+                    unit_id = None
+                    if code in (0x28, 0x5f):
+                        unit_id = parameters[0]
+                        x, y = parameters[2], parameters[3]
+                    elif code == 0x47:
+                        unit_id = parameters[2]
+                        x, y = parameters[3], parameters[4]
+
+                    if unit_id:
+                        assert parameters[1] == 0
+                        movements[unit_id].add((x, y))
+        return movements
+
+    @property
+    def has_movements(self):
+        return any(coordinates for coordinates in self.movements.values())
 
     @cached_property
     def formations(self):
@@ -2365,14 +2374,15 @@ class EncounterObject(TableObject):
             f.clear_cache()
 
     def set_occupied(self):
-        for u, (x, y) in self.movements.items():
-            self.map.set_occupied(x, y)
+        for u, coordinates in self.movements.items():
+            for (x, y) in coordinates:
+                self.map.set_occupied(x, y)
         for u in self.units:
             if u.has_unique_name and (u.is_present_old or
                                       u.unit_id in self.movements):
                 self.map.set_occupied(u.old_data['x'], u.old_data['y'])
                 continue
-        if self.movements and 'bigtide' not in get_activated_codes():
+        if self.has_movements and 'bigtide' not in get_activated_codes():
             for u in self.units:
                 if u.unit_id in self.movements:
                     self.map.set_occupied(u.old_data['x'], u.old_data['y'])
@@ -2386,7 +2396,8 @@ class EncounterObject(TableObject):
             self.clear_cache()
 
     def is_map_movement_compatible(self, c):
-        movement_tiles = set(self.movements.values())
+        movement_tiles = {(x, y) for u in self.movements
+                          for (x, y) in self.movements[u]}
         gns = GNSObject.get_by_map_index(c)
         valid_tiles = set(
             gns.get_tiles_compare_attribute('bad_regardless', False))
@@ -2405,7 +2416,7 @@ class EncounterObject(TableObject):
         if not candidates:
             candidates = [map_index for map_index in sorted(self.REPLACED_MAPS)
                           if map_index not in self.DONE_MAPS]
-        if self.movements:
+        if self.has_movements:
             candidates = [c for c in candidates
                           if self.is_map_movement_compatible(c)]
 
@@ -2663,6 +2674,10 @@ class BattleConditionalObject(ConditionalMixin):
             assert len(parameters) == 1
             event_indexes.append(parameters[0])
         return event_indexes
+
+    @property
+    def events(self):
+        return [EventObject.get(i) for i in self.event_indexes]
 
 
 class WorldConditionalObject(ConditionalMixin):
