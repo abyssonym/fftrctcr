@@ -2286,8 +2286,8 @@ class EncounterObject(TableObject):
     def conditional(self):
         return BattleConditionalObject.get(self.conditional_index)
 
-    @property
-    def movements(self):
+    @cached_property
+    def movements_single(self):
         movements = defaultdict(set)
         if self.conditional:
             for e in self.conditional.events:
@@ -2303,6 +2303,16 @@ class EncounterObject(TableObject):
                     if unit_id:
                         assert parameters[1] == 0
                         movements[unit_id].add((x, y))
+        return movements
+
+    @cached_property
+    def movements(self):
+        encs = [e for e in EncounterObject.every
+                if e.old_data['map_index'] == self.old_data['map_index']]
+        movements = defaultdict(set)
+        for e in encs:
+            for u in e.movements_single:
+                movements[u] |= e.movements_single[u]
         return movements
 
     @property
