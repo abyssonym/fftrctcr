@@ -24,7 +24,7 @@ from traceback import format_exc
 import re
 
 
-VERSION = '2.1'
+VERSION = '2.2'
 ALL_OBJECTS = None
 DEBUG = environ.get('DEBUG')
 
@@ -710,7 +710,7 @@ class JobObject(TableObject):
     def boost_stats(self, factor):
         for attrs in self.randomselect_attributes:
             if attrs in ['move', 'jump']:
-                random_difficulty = self.random_difficulty ** 0.5
+                random_difficulty = self.random_difficulty ** 0.25
             else:
                 random_difficulty = self.random_difficulty
 
@@ -721,7 +721,7 @@ class JobObject(TableObject):
                 ratio = sum([random.random() for _ in range(3)]) / 3
                 if attr.endswith('growth'):
                     boost = value / (random_difficulty ** factor)
-                elif attr.endswith('mult'):
+                else:
                     boost = value * (random_difficulty ** factor)
                 value = (value * ratio) + (boost * (1-ratio))
                 value = max(0, min(0xff, value))
