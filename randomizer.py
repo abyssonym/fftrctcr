@@ -3889,7 +3889,8 @@ class UnitObject(TableObject):
         pool = [u for u in self.ranked if u.is_valid and u.rank >= 0
                 and not (u.old_job.is_generic or u.old_job.is_monster)
                 and u.old_job.old_data['skillset_index'] > 0
-                and u.get_gender() is not None]
+                and u.get_gender() is not None
+                and u.character_name != 'Ramza']
         balmafula = [u for u in self.ranked if u.character_name == 'Balmafula'
                      and u.get_gender() == 'female']
         balmafula = random.choice(balmafula)
@@ -4881,9 +4882,18 @@ class UnitObject(TableObject):
             if random.random() < (self.random_degree ** 0.65) / 2:
                 self.set_bit('join_after_event', True)
 
+        if not self.is_canonical:
+            for attr in ['brave', 'faith', 'month', 'day']:
+                setattr(self, attr, getattr(self.canonical_relative, attr))
+
         if self.job.character_name == 'Ramza':
             self.set_bit('join_after_event',
                          self.get_bit('join_after_event', old=True))
+            if self.entd_index not in (0x100, 0x183, 0x188):
+                for attr in self.old_data:
+                    if attr in ('x', 'y', 'facing'):
+                        continue
+                    setattr(self, attr, self.old_data[attr])
 
     def cleanup(self):
         for equip in UnitObject.EQUIPMENT_ATTRS:
@@ -4947,10 +4957,6 @@ class UnitObject(TableObject):
                 assert self.secondary == self.old_data['secondary']
             if not SkillsetObject.get(self.secondary).is_lucavi_appropriate:
                 self.secondary = 0
-
-        if not self.is_canonical:
-            for attr in ['brave', 'faith', 'month', 'day']:
-                setattr(self, attr, getattr(self.canonical_relative, attr))
 
         if (self.unit_id > 0 and self.encounter
                 and self.unit_id in self.encounter.movements):
