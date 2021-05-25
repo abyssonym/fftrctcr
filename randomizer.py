@@ -5012,7 +5012,7 @@ class ENTDObject(TableObject):
     FINAL_BATTLE = 0x1b9
     CEMETARY = 0x134
 
-    NERF_ENTDS = {0x183, 0x184, 0x185}
+    NERF_ENTDS = {0x180, 0x183, 0x184, 0x185}
 
     @classproperty
     def after_order(self):
