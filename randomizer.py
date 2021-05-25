@@ -2046,6 +2046,7 @@ class MoveFindObject(TableObject):
                                MoveFindObject.done_locations[self.map_index]]
             new_location = random.choice(valid_locations)
             self.set_coordinates(*new_location)
+            MoveFindObject.done_locations[self.map_index].add(new_location)
 
         template = random.choice([mfo for mfo in MoveFindObject.every
                                   if mfo.is_active])
