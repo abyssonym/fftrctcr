@@ -5037,7 +5037,7 @@ class ENTDObject(TableObject):
     def avg_level(self):
         levels = [u.old_data['level'] for u in self.units
                   if u.is_present_old and 1 <= u.old_data['level'] <= 99
-                  and not u.is_ally]
+                  and (u.get_bit('join_after_event', True) or not u.is_ally)]
         if not levels:
             return None
         highest = max(levels)
