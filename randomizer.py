@@ -4312,14 +4312,37 @@ class UnitObject(TableObject):
         self.relocate(x, y)
         self.fix_facing()
 
-    def relocate_nearest_good_tile(self):
+    def relocate_nearest_good_tile(self, max_distance=16,
+                                   preserve_elevation=False):
         neighbor_coordinates = [(u.x, u.y) for u in self.neighbors
                                 if u.is_present]
         valid_tiles = self.map.get_tiles_compare_attribute('bad', False)
-        for distance in range(16):
+
+        if preserve_elevation:
+            compare_function = lambda a, b: a >= b
+            depth_tiles = self.map.get_tiles_compare_attribute(
+                'depth', 1, upper=self.is_upper,
+                compare_function=compare_function)
+            z = self.map.get_tile_attribute(self.x, self.y, 'z')
+            if len(z) == 1:
+                z = list(z)[0]
+            best_height_tiles = self.map.get_tiles_compare_attribute(
+                'z', z, upper=self.is_upper)
+            compare_function = lambda a, b: abs(a-b) <= 1
+            valid_height_tiles = self.map.get_tiles_compare_attribute(
+                'z', z, upper=self.is_upper, compare_function=compare_function)
+            valid_tiles = [t for t in valid_tiles
+                           if t in valid_height_tiles
+                           and t not in depth_tiles]
+
+        for distance in range(max_distance+1):
             candidates = [(x, y) for (x, y) in valid_tiles
                           if abs(x-self.x) + abs(y-self.y) <= distance
                           and (x, y) not in neighbor_coordinates]
+            if preserve_elevation:
+                temp = [c for c in candidates if c in best_height_tiles]
+                if temp:
+                    candidates = temp
             if candidates:
                 x, y = random.choice(candidates)
                 self.relocate(x, y)
@@ -4841,13 +4864,20 @@ class UnitObject(TableObject):
                       and (u.unit_id < 0xff or u.is_present)
                       and u.is_standing_on_solid_ground
                       and not hasattr(u, '_chocobo_mount')]
-        if candidates:
-            chosen = random.choice(candidates)
-            chosen._chocobo_mount = self
-            self._chocobo_rider = chosen
+        old_x, old_y = self.x, self.y
+        random.shuffle(candidates)
+        for chosen in candidates:
             self.x = chosen.x
             self.y = chosen.y
-            self.relocate_nearest_good_tile()
+            try:
+                self.relocate_nearest_good_tile(max_distance=1,
+                                                preserve_elevation=True)
+                self._chocobo_rider = chosen
+                chosen._chocobo_mount = self
+                return True
+            except:
+                continue
+        self.x, self.y = (old_x, old_y)
 
     def check_no_collisions(self):
         if self.map is None:
