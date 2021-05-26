@@ -3889,7 +3889,7 @@ class UnitObject(TableObject):
     @property
     def is_human(self):
         return (self.graphic != self.MONSTER_GRAPHIC
-                and not self.job.is_lucavi)
+                and not (self.job.is_monster or self.job.is_lucavi))
 
     @cached_property
     def is_human_old(self):
