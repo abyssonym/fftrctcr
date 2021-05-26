@@ -3270,6 +3270,8 @@ class EventObject(TableObject):
             instruction = (0x28, (rider.unit_id, 0x00, mount.x, mount.y,
                                   elevation, 0x00, 0x7f, 0x01))
             mount_instructions.append(instruction)
+            instruction = (0x29, (rider.unit_id, 0x00))
+            mount_instructions.append(instruction)
         assert self.instructions[-1] == (0xdb, [])
         self.instructions = (self.instructions[:-1] + mount_instructions
                              + [self.instructions[-1]])
@@ -4870,8 +4872,7 @@ class UnitObject(TableObject):
             self.x = chosen.x
             self.y = chosen.y
             try:
-                self.relocate_nearest_good_tile(max_distance=1,
-                                                preserve_elevation=True)
+                self.relocate_nearest_good_tile()
                 self._chocobo_rider = chosen
                 chosen._chocobo_mount = self
                 return True
@@ -4980,6 +4981,14 @@ class UnitObject(TableObject):
                 setattr(self, attr, getattr(self.job, fixed_attr))
 
         assert self.check_no_collisions()
+        if self.unit_id not in (0, 0xff):
+            for u in self.neighbors:
+                if u is self:
+                    continue
+                if (self.unit_id == self.old_data['unit_id']
+                        and u.unit_id == u.old_data['unit_id']):
+                    continue
+                assert u.unit_id != self.unit_id
 
         if self.is_important and self.encounter is not None:
             assert 0 <= self.x < self.map.width
@@ -5188,6 +5197,7 @@ class ENTDObject(TableObject):
                         setattr(spare, attr, 0x1fe)
                     else:
                         setattr(spare, attr, template_value)
+                spare.unit_id = 0x90 | (spare.index % 0x10)
                 spare.clear_cache()
                 if self.index in self.NERF_ENTDS:
                     spare.set_bit('enemy_team', False)
