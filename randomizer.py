@@ -3792,6 +3792,7 @@ class UnitObject(TableObject):
     NO_JOB_CHANGE = {0x91}
 
     ORBONNE_OPENING_ENTD = 0x183
+    CHANGED_RAMZA_ENTD_INDEXES = {0x100, 0x133, 0x183, 0x188}
 
     EQUIPMENT_ATTRS = ['head', 'body', 'accessory', 'righthand', 'lefthand']
 
@@ -4891,7 +4892,7 @@ class UnitObject(TableObject):
         if self.job.character_name == 'Ramza':
             self.set_bit('join_after_event',
                          self.get_bit('join_after_event', old=True))
-            if self.entd_index not in (0x100, 0x183, 0x188):
+            if self.entd_index not in UnitObject.CHANGED_RAMZA_ENTD_INDEXES:
                 for attr in self.old_data:
                     if attr in ('x', 'y', 'facing'):
                         continue
