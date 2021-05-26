@@ -338,7 +338,7 @@ class JobObject(TableObject):
         for name in character_jobs:
             JobObject._character_jobs[name] = [
                 JobObject.get(j) for j in sorted(character_jobs[name])
-                if JobObject.get(j).is_special]
+                if JobObject.get(j).is_special and j != 0]
 
         return JobObject._character_jobs
 
@@ -2813,6 +2813,7 @@ class WorldConditionalObject(ConditionalMixin):
                 p.secondary = 0
                 for attr in UnitObject.EQUIPMENT_ATTRS:
                     setattr(p, attr, 0)
+                p.set_bit('monster', True)
         else:
             chosen = random.choice(special_templates)
             jobs = random.sample(JobObject.ranked_generic_jobs_candidates,
@@ -2855,6 +2856,7 @@ class WorldConditionalObject(ConditionalMixin):
 
                 setattr(p, good_item_attr, good_item.index)
                 setattr(p, bad_item_attr, 0xfe)
+                p.set_bit(chosen.get_gender(), True)
 
         partner.clear_cache()
         for p in pinatas:
