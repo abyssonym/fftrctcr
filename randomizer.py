@@ -70,6 +70,7 @@ class AbilityObject(TableObject):
     SHORT_CHARGE = 0x1e2
     NON_CHARGE = 0x1e3
     TELEPORT2 = 0x1f3
+    DUMMIED_ABILITIES = (NON_CHARGE, TELEPORT2)
     MP_RESTORE_INNATES = [0x1ee, 0x1b6, 0x1b0]
     MAINTENANCE = 0x1db
 
@@ -1352,25 +1353,35 @@ class SkillsetObject(TableObject):
                 actions = random.sample(actions, 16)
             final_actions[base] = actions
 
-        rsms.add(0x1e3)
-        rsms.add(0x1f3)
         rsms = [rsm for rsm in sorted(rsms) if rsm > 0]
         temp = list(rsms)
         while len(temp) < rsm_count:
             temp.append(random.choice(rsms))
         rsms = temp
+        for rsm in AbilityObject.DUMMIED_ABILITIES:
+            assert rsm not in rsms
+            rsms.append(rsm)
+        random.shuffle(rsms)
 
         final_rsms = defaultdict(set)
         candidates = sorted([name for name in shuffle_skillsets
                              if isinstance(name, str)])
         candidates += [sso.index for sso in SkillsetObject.every
                        if sso.is_generic]
+        is_generic = lambda sso: isinstance(sso, int)
+        you_get_one = False
         for rsm in rsms:
             while True:
                 chosen = random.choice(candidates)
+                if (rsm in AbilityObject.DUMMIED_ABILITIES
+                        and is_generic(chosen) and you_get_one):
+                    continue
                 if len(final_rsms[chosen]) >= 6:
                     continue
                 final_rsms[chosen].add(rsm)
+                if (rsm in AbilityObject.DUMMIED_ABILITIES
+                        and is_generic(chosen)):
+                    you_get_one = True
                 break
 
         done_skillsets = {}
