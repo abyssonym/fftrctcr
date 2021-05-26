@@ -5164,8 +5164,13 @@ class ENTDObject(TableObject):
             elif key in self.NAMED_GENERICS:
                 new_sprite = self.NAMED_GENERICS[key]
             else:
-                new_sprite = u.get_similar_sprite(exclude_sprites=new_sprites,
-                                                  random_degree=1.0)
+                if u.get_bit('enemy_team'):
+                    new_sprite = u.get_similar_sprite(
+                        exclude_sprites=new_sprites, random_degree=1.0)
+                else:
+                    new_sprite = u.get_similar_sprite(
+                        exclude_sprites=new_sprites)
+
             old_g, old_j = u.old_sprite_id
             new_g, new_j = new_sprite
             if new_g == UnitObject.MONSTER_GRAPHIC:
