@@ -1889,6 +1889,18 @@ class JobReqObject(TableObject):
             self.set_req(req, level)
         self._lockdown = None
 
+    @clached_property
+    def jp_increase_ratio(self):
+        old_values = [jro.get_jp_total(old=True) for jro in self.every]
+        new_values = [jro.get_jp_total() for jro in self.every]
+        ratios = []
+        for old, new in zip(sorted(old_values), sorted(new_values)):
+            if min(old, new) == 0:
+                continue
+            ratio = new / old
+            ratios.append(ratio)
+        return (sum(ratios) / len(ratios))
+
     @classmethod
     def randomize_all(self):
         old_ranked = self.ranked
@@ -1898,6 +1910,18 @@ class JobReqObject(TableObject):
         jp_values = [mutate_normal(jp, 0, max_jp,
                                    random_degree=self.random_degree)
                      for jp in jp_values]
+        boosted_values = []
+        max_index = len(jp_values) - 1
+        minval, maxval = min(jp_values), max(jp_values)
+        for i, jp_value in enumerate(jp_values):
+            ratio = (i / max_index) ** 2
+            boosted_value = jp_value * (self.random_difficulty ** 2)
+            randomness = sum(random.random() for _ in range(3)) / 3
+            boosted_value = ((boosted_value * randomness) +
+                             (jp_value * (1-randomness)))
+            boosted_value = max(minval, min(boosted_value, maxval))
+            boosted_values.append(boosted_value)
+        jp_values = sorted(boosted_values)
         jp_values = [round(jp * 2, -2) // 2 for jp in jp_values]
         jp_values = sorted(jp_values)
 
@@ -1933,14 +1957,14 @@ class JobReqObject(TableObject):
                                            hashstring('%s%s' % (k, salt))))
                 candidates = [c for c in candidates
                               if c not in self.BANNED_REQS]
-                if random.random() > max(self.random_degree ** 2.5, 0.01):
+                if random.random() > max(self.random_degree ** 2, 0.01):
                     temp = [c for c in candidates if c in my_pool]
                     if temp:
                         candidates = temp
 
                 max_index = len(candidates)-1
                 index = int(round(
-                    (random.random() ** (self.random_degree ** 0.5))
+                    (random.random() ** (self.random_degree ** 0.25))
                     * max_index))
                 index = max_index - index
                 chosen = candidates[index]
@@ -4083,7 +4107,8 @@ class UnitObject(TableObject):
                 jp = jro.get_jp_total(old=True)
                 if (self.get_bit('enemy_team')
                         and self.entd_index not in ENTDObject.NERF_ENTDS):
-                    jp = jp * self.random_difficulty
+                    jp = (jp * self.random_difficulty
+                          * JobReqObject.jp_increase_ratio)
                 else:
                     jp /= 2
                 jp = mutate_normal(jp, 0, max(jp, max_jp),
