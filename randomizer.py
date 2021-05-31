@@ -2307,7 +2307,7 @@ class EncounterObject(TableObject):
         if 'bigtide' in get_activated_codes():
             return (self.num_characters
                         and not hasattr(self.map, '_loaded_from'))
-        return (self.num_characters and not self.has_movements
+        return (self.num_characters and not self.has_walktos
                     and not hasattr(self.map, '_loaded_from'))
 
     @cached_property
@@ -2322,19 +2322,41 @@ class EncounterObject(TableObject):
     def conditional(self):
         return BattleConditionalObject.get(self.conditional_index)
 
-    @cached_property
-    def movements_single(self):
+    def get_unit_by_id(self, unit_id):
+        for u in self.units:
+            if u.unit_id == unit_id:
+                return u
+
+    def get_movements(self, codes=None):
+        if codes is None:
+            codes = (0x28, 0x47, 0x5f, 0x3b)
         movements = defaultdict(set)
-        if self.conditional:
+        if self.conditional_index > 0:
             for e in self.conditional.events:
                 for (code, parameters) in e.instructions:
+                    if code not in codes:
+                        continue
                     unit_id = None
-                    if code in (0x28, 0x5f):
+                    if code in {0x28, 0x5f} & set(codes):
                         unit_id = parameters[0]
                         x, y = parameters[2], parameters[3]
-                    elif code == 0x47:
+                    elif code == 0x47 and code in codes:
                         unit_id = parameters[2]
                         x, y = parameters[3], parameters[4]
+                    elif code == 0x3b and code in codes:
+                        unit_id = parameters[0]
+                        relx, rely = parameters[2], parameters[4]
+                        if relx & 0x8000:
+                            relx = 0x10000 - relx
+                        if rely & 0x8000:
+                            rely = 0x10000 - rely
+                        relx = int(round(relx / 0x28))
+                        rely = int(round(rely / 0x28))
+                        unit = self.get_unit_by_id(unit_id)
+                        if unit is None:
+                            continue
+                        x, y = (unit.old_data['x'] + relx,
+                                unit.old_data['y'] + rely)
 
                     if unit_id:
                         assert parameters[1] == 0
@@ -2347,13 +2369,46 @@ class EncounterObject(TableObject):
                 if e.old_data['map_index'] == self.old_data['map_index']]
         movements = defaultdict(set)
         for e in encs:
-            for u in e.movements_single:
-                movements[u] |= e.movements_single[u]
+            e_movements = e.get_movements()
+            for u in e_movements:
+                movements[u] |= e_movements[u]
         return movements
 
-    @property
+    @cached_property
+    def walktos(self):
+        encs = [e for e in EncounterObject.every
+                if e.old_data['map_index'] == self.old_data['map_index']]
+        movements = defaultdict(set)
+        for e in encs:
+            e_movements = e.get_movements(codes=(0x28, 0x3b))
+            for u in e_movements:
+                movements[u] |= e_movements[u]
+        return movements
+
+    @cached_property
+    def has_walktos(self):
+        for u in self.walktos:
+            if len(self.walktos[u]) > 0:
+                return True
+        return False
+
+    @cached_property
+    def has_special_walktos(self):
+        for u in self.walktos:
+            if 1 <= u <= 0x7f and len(self.walktos[u]) > 0:
+                return True
+        return False
+
+    @cached_property
     def has_movements(self):
         return any(coordinates for coordinates in self.movements.values())
+
+    @cached_property
+    def has_special_movements(self):
+        for u in self.movements:
+            if 1 <= u <= 0x7f and self.movements[u]:
+                return True
+        return False
 
     @cached_property
     def formations(self):
@@ -2423,11 +2478,6 @@ class EncounterObject(TableObject):
         for u, coordinates in self.movements.items():
             for (x, y) in coordinates:
                 self.map.set_occupied(x, y)
-        for u in self.units:
-            if u.has_unique_name and (u.is_present_old or
-                                      u.unit_id in self.movements):
-                self.map.set_occupied(u.old_data['x'], u.old_data['y'])
-                continue
         if self.has_movements and 'bigtide' not in get_activated_codes():
             for u in self.units:
                 if u.unit_id in self.movements:
