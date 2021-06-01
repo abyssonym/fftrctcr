@@ -694,10 +694,15 @@ class JobObject(TableObject):
 
                 if (other not in self.innates
                         and random.random() > random_degree):
+                    if not AbilityObject.get(other).is_support:
+                        continue
                     self.innates[i] = other
                 else:
-                    self.innates[i] = (
-                        random.choice(AbilityObject.passive_pool).index)
+                    if random.random() > random_degree:
+                        pool = AbilityObject.support_pool
+                    else:
+                        pool = AbilityObject.passive_pool
+                    self.innates[i] = random.choice(pool).index
 
     def randomize_arc_witch(self):
         generics = JobObject.ranked_generic_jobs_candidates
