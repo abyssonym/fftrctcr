@@ -7,6 +7,7 @@ JobObject                   struct_job.txt                  518b8@SCUS_942.21   
 ItemObject                  struct_item.txt                 536b8@SCUS_942.21           254
 WeaponObject                struct_weapon.txt               542b8@SCUS_942.21           128
 WeaponStatusObject          empty.txt                       0                           128
+WeaponProcObject            empty.txt                       0                           128
 ShieldObject                struct_shield.txt               546b8@SCUS_942.21           16
 ArmorObject                 struct_armor.txt                546d8@SCUS_942.21           64
 AccessoryObject             struct_accessory.txt            54758@SCUS_942.21           32

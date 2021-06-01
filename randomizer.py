@@ -228,7 +228,7 @@ class AbilityAttributesObject(MutateBoostMixin):
 
 class AbilityStatusObject(TableObject):
     flag = 'y'
-    flag_description = 'ability/weapon status effects and procs'
+    flag_description = 'ability and weapon status effects'
     custom_random_enable = flag
 
     def mutate(self):
@@ -1038,12 +1038,16 @@ class WeaponStatusObject(TableObject):
     custom_random_enable = flag
 
     def mutate(self):
-        if random.choice([True, False]):
-            WeaponObject.get(self.index).mutate_status()
-            WeaponObject.get(self.index).mutate_proc()
-        else:
-            WeaponObject.get(self.index).mutate_proc()
-            WeaponObject.get(self.index).mutate_status()
+        WeaponObject.get(self.index).mutate_status()
+
+
+class WeaponProcObject(TableObject):
+    flag = 'x'
+    flag_description = 'weapon spell procs'
+    custom_random_enable = flag
+
+    def mutate(self):
+        WeaponObject.get(self.index).mutate_proc()
 
 
 class ShieldObject(TableObject):
