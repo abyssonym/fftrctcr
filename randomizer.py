@@ -67,6 +67,7 @@ class AbilityObject(TableObject):
     BALL = 0x189
     JUMPS = lange(0x18a, 0x196)
     MP_SWITCH = 0x1bd
+    TWO_SWORDS = 0x1dd
     SHORT_CHARGE = 0x1e2
     NON_CHARGE = 0x1e3
     TELEPORT2 = 0x1f3
@@ -4109,6 +4110,15 @@ class UnitObject(TableObject):
         return False
 
     @property
+    def two_swords(self):
+        for i in self.job.innates:
+            if i == AbilityObject.TWO_SWORDS:
+                return True
+        if self.support == AbilityObject.TWO_SWORDS:
+            return True
+        return False
+
+    @property
     def neighbors(self):
         return self.entd.units
 
@@ -4673,17 +4683,11 @@ class UnitObject(TableObject):
                 candidates = ItemObject.ranked_nohands_candidates
 
             if random.random() > self.random_degree ** 3:
-                if equip == 'righthand':
+                if (equip == 'righthand'
+                        or (equip == 'lefthand' and self.two_swords)):
                     candidates = [c for c in candidates if c.get_bit('weapon')]
                 elif equip == 'lefthand':
-                    dual_wield = False
-                    if 1 <= template.old_data['lefthand'] <= 0xfd:
-                        tleft = ItemObject.get(template.old_data['lefthand'])
-                        if tleft.get_bit('weapon'):
-                            dual_wield = True
-                    if not dual_wield:
-                        candidates = [c for c in candidates
-                                      if c.get_bit('shield')]
+                    candidates = [c for c in candidates if c.get_bit('shield')]
                 else:
                     candidates = [c for c in candidates if c.get_bit(equip)]
 
@@ -4692,7 +4696,9 @@ class UnitObject(TableObject):
 
             if equip == 'righthand' and self.requires_sword:
                 swords = [c for c in candidates if c.is_sword]
-                if (len(swords) == 0
+                if swords and random.random() > self.random_degree:
+                    candidates = swords
+                elif (len(swords) == 0
                         and random.random() < self.random_degree ** 0.5):
                     candidates = [
                         c for c in ItemObject.ranked_hands_candidates
