@@ -260,9 +260,9 @@ class JobObject(TableObject):
     ALTIMA_NICE_BODY = 0x41
     ALTIMA_PERFECT_BODY = 0x49
 
-    VALID_INNATE_STATUSES = 0xcafcc12a10
+    VALID_INNATE_STATUSES = 0xc2fcc12a10
     VALID_START_STATUSES = (VALID_INNATE_STATUSES |
-                            0x1402300000)
+                            0x1c02300000)
     BENEFICIAL_STATUSES =   0xc278600000
     RERAISE_STATUS =        0x0000200000
     FAITH_STATUS =          0x8000000000
@@ -593,13 +593,18 @@ class JobObject(TableObject):
         random_degree = JobInnatesObject.random_degree
 
         for attr in ['start_status', 'innate_status']:
-            if random.random() > random_degree:
+            if random.random() > (random_degree ** 0.5) / 2:
                 continue
+            if (attr == 'innate_status' and self.is_generic
+                    and random.random() > (random_degree ** 0.5) / 2):
+                continue
+            while True:
+                mask = (1 << random.randint(0, 39))
+                if mask & self.VALID_START_STATUSES:
+                    break
             value = getattr(self, attr)
-            mask = (1 << random.randint(0, 39))
-            if mask & self.VALID_START_STATUSES:
-                value ^= mask
-                setattr(self, attr, value)
+            value ^= mask
+            setattr(self, attr, value)
         super().magic_mutate_bits(random_degree=random_degree ** (1/2))
 
     def preprocess(self):
@@ -2286,7 +2291,7 @@ class EncounterObject(TableObject):
 
     REPLACING_MAPS = [
         1, 4, 8, 9, 11, 14, 15, 18, 20, 21, 23, 24, 26, 37, 38,
-        41, 43, 46, 48, 51, 53, 62, 65, 68, 71, 72, 73, 75,
+        43, 46, 48, 51, 53, 62, 65, 68, 71, 72, 73, 75,
         76, 92, 93, 95, 96, 97, 98, 99, 100, 101, 102, 104,
         115, 116, 117, 118, 119, 125]
     DONE_MAPS = set()
@@ -5018,7 +5023,8 @@ class UnitObject(TableObject):
             self.y = chosen_y
             z = self.map.get_tile_attribute(chosen_x, chosen_y, 'z',
                                             upper=chosen.is_upper)
-            assert len(z) == 1
+            if len(z) != 1:
+                continue
             z = list(z)[0]
             try:
                 self.relocate_nearest_good_tile(upper=chosen.is_upper,
