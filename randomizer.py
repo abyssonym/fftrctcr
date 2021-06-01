@@ -848,6 +848,19 @@ class JobObject(TableObject):
                 for attr in attrs:
                     setattr(self, attr, self.old_data[attr])
 
+        if self.index == self.SQUIRE_INDEX:
+            for attrs in self.randomselect_attributes:
+                if not isinstance(attrs, tuple):
+                    attrs = (attrs,)
+                for attr in attrs:
+                    if attr.endswith('growth') or attr.endswith('mult'):
+                        value = max(getattr(self, attr), self.old_data[attr])
+                        setattr(self, attr, value)
+                    else:
+                        setattr(self, attr, self.old_data[attr])
+            self.start_status &= self.BENEFICIAL_STATUSES
+            self.innate_status &= self.BENEFICIAL_STATUSES
+
         if JobStatsObject.flag not in get_flags():
             for attrs in self.randomselect_attributes:
                 if not isinstance(attrs, tuple):
