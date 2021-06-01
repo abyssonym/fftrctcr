@@ -4438,6 +4438,13 @@ class UnitObject(TableObject):
         else:
             tiles = self.map.get_recommended_tiles_enemy()
 
+            compare_function = lambda a, b: a >= b
+            depth_tiles = self.map.get_tiles_compare_attribute(
+                'depth', 1, upper=False,
+                compare_function=compare_function)
+
+            tiles = [t for t in tiles if t not in depth_tiles]
+
         max_index = len(tiles)-1
         factor = 1 - (random.random() ** (1 / (random_degree ** 0.7)))
         assert 0 <= factor <= 1
