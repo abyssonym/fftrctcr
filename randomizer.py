@@ -5112,7 +5112,7 @@ class UnitObject(TableObject):
         if (self.graphic != self.old_data['graphic']
                 and self.is_valid and not self.has_generic_sprite
                 and self.entd_index not in ENTDObject.LUCAVI_ENTDS):
-            if random.random() < (self.random_degree ** 0.65) / 2:
+            if random.random() < (self.random_degree ** 0.85) / 2:
                 self.set_bit('join_after_event', True)
 
         if not self.is_canonical:
