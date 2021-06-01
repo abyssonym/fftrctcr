@@ -1389,7 +1389,8 @@ class SkillsetObject(TableObject):
         candidates = sorted([name for name in shuffle_skillsets
                              if isinstance(name, str)])
         candidates += [sso.index for sso in SkillsetObject.every
-                       if sso.is_generic]
+                       if sso.is_generic
+                       and sso.index not in SkillsetObject.BANNED_ANYTHING]
         is_generic = lambda sso: isinstance(sso, int)
         you_get_one = False
         for rsm in rsms:
