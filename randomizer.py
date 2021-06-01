@@ -2328,15 +2328,25 @@ class EncounterObject(TableObject):
                 return u
 
     def get_movements(self, codes=None):
+        def get_last_coordinates(coord_dict, unit_id):
+            if coord_dict[unit_id]:
+                return coord_dict[unit_id][-1]
+            else:
+                unit = self.get_unit_by_id(unit_id)
+                if unit:
+                    return (unit.old_data['x'], unit.old_data['y'])
+            return None, None
+
         if codes is None:
             codes = (0x28, 0x47, 0x5f, 0x3b)
-        movements = defaultdict(set)
+        movements = {}
         if self.conditional_index > 0:
-            for e in self.conditional.events:
-                for (code, parameters) in e.instructions:
+            for i, v in enumerate(self.conditional.events):
+                v_movements = defaultdict(list)
+                for (code, parameters) in v.instructions:
                     if code not in codes:
                         continue
-                    unit_id = None
+                    unit_id, x, y = None, None, None
                     if code in {0x28, 0x5f} & set(codes):
                         unit_id = parameters[0]
                         x, y = parameters[2], parameters[3]
@@ -2352,15 +2362,28 @@ class EncounterObject(TableObject):
                             rely = 0x10000 - rely
                         relx = int(round(relx / 0x28))
                         rely = int(round(rely / 0x28))
-                        unit = self.get_unit_by_id(unit_id)
-                        if unit is None:
+                        if relx == rely == 0:
                             continue
-                        x, y = (unit.old_data['x'] + relx,
-                                unit.old_data['y'] + rely)
 
-                    if unit_id:
+                        old_x, old_y = get_last_coordinates(v_movements,
+                                                            unit_id)
+                        if old_x is not None:
+                            x, y = (old_x + relx, old_y + rely)
+                        else:
+                            self._protected = True
+                        unit = self.get_unit_by_id(unit_id)
+                        if unit and not v_movements[unit_id]:
+                            unit._fixed_initial_coordinates = True
+
+                    if None not in (unit_id, x, y):
                         assert parameters[1] == 0
-                        movements[unit_id].add((x, y))
+                        old_x, old_y = get_last_coordinates(v_movements,
+                                                            unit_id)
+                        if x == old_x and y == old_y:
+                            continue
+                        v_movements[unit_id].append((x, y))
+
+                movements[i] = v_movements
         return movements
 
     @cached_property
@@ -2370,8 +2393,11 @@ class EncounterObject(TableObject):
         movements = defaultdict(set)
         for e in encs:
             e_movements = e.get_movements()
+            if not e_movements:
+                continue
+            e_movements = e_movements[0]
             for u in e_movements:
-                movements[u] |= e_movements[u]
+                movements[u] |= set(e_movements[u])
         return movements
 
     @cached_property
@@ -2381,8 +2407,11 @@ class EncounterObject(TableObject):
         movements = defaultdict(set)
         for e in encs:
             e_movements = e.get_movements(codes=(0x28, 0x3b))
+            if not e_movements:
+                continue
+            e_movements = e_movements[0]
             for u in e_movements:
-                movements[u] |= e_movements[u]
+                movements[u] |= set(e_movements[u])
         return movements
 
     @cached_property
@@ -2478,6 +2507,10 @@ class EncounterObject(TableObject):
         for u, coordinates in self.movements.items():
             for (x, y) in coordinates:
                 self.map.set_occupied(x, y)
+        for u in self.units:
+            if (hasattr(u, '_fixed_initial_coordinates')
+                    and u._fixed_initial_coordinates):
+                self.map.set_occupied(u.old_data['x'], u.old_data['y'])
         if self.has_movements and 'bigtide' not in get_activated_codes():
             for u in self.units:
                 if u.unit_id in self.movements:
@@ -2557,7 +2590,17 @@ class EncounterObject(TableObject):
         random.shuffle(units)
         for u in units:
             if (u.unit_id in self.movements
-                    and 'bigtide' not in get_activated_codes()):
+                    and u.is_important_map_movements
+                    and 'bigtide' not in get_activated_codes()
+                    and u.unit_id in self.get_movements()[0]):
+                u._fixed_initial_coordinates = True
+                self.map.set_occupied(u.x, u.y)
+
+        for u in units:
+            if hasattr(u, '_fixed_initial_coordinates'):
+                assert u._fixed_initial_coordinates
+                assert u.x == u.old_data['x']
+                assert u.y == u.old_data['y']
                 continue
             if u.is_present:
                 u.find_appropriate_position()
@@ -3313,10 +3356,15 @@ class EventObject(TableObject):
         for rider in riders:
             mount = [m for m in mounts if m._chocobo_rider is rider][0]
             assert rider._chocobo_mount is mount
+            assert mount.get_bit('always_present')
             if rider.unit_id == 0xff:
                 rider.unit_id = next_unit_id
                 next_unit_id += 1
             elevation = 1 if mount.is_upper else 0
+            x, y = rider.full_movement_path[-1]
+            instruction = (0x5f, (rider.unit_id, 0x00, x, y,
+                                  elevation, mount.facing))
+            mount_instructions.append(instruction)
             instruction = (0x28, (rider.unit_id, 0x00, mount.x, mount.y,
                                   elevation, 0x00, 0x7f, 0x01))
             mount_instructions.append(instruction)
@@ -4259,6 +4307,11 @@ class UnitObject(TableObject):
         return self.entd.is_valid and self.is_present and self.unit_id != 0xff
 
     @cached_property
+    def is_important_map_movements(self):
+        return (self.get_bit('randomly_present')
+                or self.get_bit('always_present') or 1 <= self.unit_id <= 0x7f)
+
+    @cached_property
     def encounter(self):
         if self.entd_index == 0:
             return None
@@ -4308,6 +4361,10 @@ class UnitObject(TableObject):
             self.level = 100 + boost
             self.level = max(100, min(self.level, 199))
 
+    @property
+    def facing(self):
+        return self.misc_facing & 0x3
+
     def fix_facing(self):
         # 0: south, 1: west, 2: north, 3: east
         m = self.map
@@ -4320,18 +4377,22 @@ class UnitObject(TableObject):
         candidates = sorted([v for (k, v) in facedict.items()
                              if dirdict[k] == lowest])
         chosen = random.choice(candidates)
-        self.facing &= 0xFC
-        self.facing |= chosen
+        self.misc_facing &= 0xFC
+        self.misc_facing |= chosen
 
     @property
     def is_upper(self):
-        return bool(self.facing & 0x80)
+        return bool(self.misc_facing & 0x80)
+
+    @property
+    def is_upper_old(self):
+        return bool(self.old_data['misc_facing'] & 0x80)
 
     def set_upper(self, upper):
         if upper:
-            self.facing |= 0x80
+            self.misc_facing |= 0x80
         else:
-            self.facing &= 0x7f
+            self.misc_facing &= 0x7f
 
     def relocate(self, x, y):
         assert not self.map.get_occupied(x, y)
@@ -4364,25 +4425,25 @@ class UnitObject(TableObject):
         self.relocate(x, y)
         self.fix_facing()
 
-    def relocate_nearest_good_tile(self, max_distance=16,
-                                   preserve_elevation=False):
+    def relocate_nearest_good_tile(self, max_distance=16, upper=None,
+                                   preserve_elevation=None):
+        if upper is None:
+            upper = self.is_upper
         neighbor_coordinates = [(u.x, u.y) for u in self.neighbors
                                 if u.is_present]
         valid_tiles = self.map.get_tiles_compare_attribute('bad', False)
 
-        if preserve_elevation:
+        if isinstance(preserve_elevation, int):
             compare_function = lambda a, b: a >= b
             depth_tiles = self.map.get_tiles_compare_attribute(
-                'depth', 1, upper=self.is_upper,
+                'depth', 1, upper=upper,
                 compare_function=compare_function)
-            z = self.map.get_tile_attribute(self.x, self.y, 'z')
-            if len(z) == 1:
-                z = list(z)[0]
+            z = preserve_elevation
             best_height_tiles = self.map.get_tiles_compare_attribute(
-                'z', z, upper=self.is_upper)
-            compare_function = lambda a, b: abs(a-b) <= 1
+                'z', z, upper=upper)
+            compare_function = lambda a, b: abs(a-b) <= 2
             valid_height_tiles = self.map.get_tiles_compare_attribute(
-                'z', z, upper=self.is_upper, compare_function=compare_function)
+                'z', z, upper=upper, compare_function=compare_function)
             valid_tiles = [t for t in valid_tiles
                            if t in valid_height_tiles
                            and t not in depth_tiles]
@@ -4391,16 +4452,16 @@ class UnitObject(TableObject):
             candidates = [(x, y) for (x, y) in valid_tiles
                           if abs(x-self.x) + abs(y-self.y) <= distance
                           and (x, y) not in neighbor_coordinates]
-            if preserve_elevation:
+            if isinstance(preserve_elevation, int):
                 temp = [c for c in candidates if c in best_height_tiles]
                 if temp:
                     candidates = temp
             if candidates:
                 x, y = random.choice(candidates)
                 self.relocate(x, y)
-                break
+                return (x, y)
         else:
-            raise Exception('No good tiles.')
+            raise IndexError('No good tiles.')
 
     def preprocess(self):
         if self.index == 0x153d and not self.is_important:
@@ -4906,28 +4967,59 @@ class UnitObject(TableObject):
             return False
         return True
 
+    @cached_property
+    def full_movement_path(self):
+        movement_path = []
+
+        if self.get_bit('always_present') or self.get_bit('randomly_present'):
+            start = (self.x, self.y)
+            movement_path.append(start)
+
+        if self.encounter is not None:
+            movements = self.encounter.get_movements()
+            if movements and self.unit_id in movements[0]:
+                movement_path += movements[0][self.unit_id]
+
+        return movement_path
+
     def attempt_chocobo_knight(self):
         if hasattr(self, '_chocobo_rider'):
             return
 
         candidates = [u for u in self.neighbors if u.is_human
-                      and u.allegiance == self.allegiance
                       #and u.unit_id >= 0x80
-                      and (u.unit_id < 0xff or u.is_present)
+                      and (1 <= u.unit_id < 0xff or u.is_present)
                       and u.is_standing_on_solid_ground
                       and not hasattr(u, '_chocobo_mount')]
+        temp = [c for c in candidates if c.allegiance == self.allegiance]
+        if temp:
+            candidates = temp
         old_x, old_y = self.x, self.y
         random.shuffle(candidates)
         for chosen in candidates:
-            self.x = chosen.x
-            self.y = chosen.y
-            try:
-                self.relocate_nearest_good_tile()
-                self._chocobo_rider = chosen
-                chosen._chocobo_mount = self
-                return True
-            except:
+            movement_path = chosen.full_movement_path
+            if not movement_path:
                 continue
+            chosen_x, chosen_y = movement_path[-1]
+            self.x = chosen_x
+            self.y = chosen_y
+            z = self.map.get_tile_attribute(chosen_x, chosen_y, 'z',
+                                            upper=chosen.is_upper)
+            assert len(z) == 1
+            z = list(z)[0]
+            try:
+                self.relocate_nearest_good_tile(upper=chosen.is_upper,
+                                                preserve_elevation=z)
+            except IndexError:
+                continue
+            assert (self.x, self.y) != (chosen_x, chosen_y)
+            assert (self.x, self.y) != (chosen.x, chosen.y)
+            self._chocobo_rider = chosen
+            chosen._chocobo_mount = self
+            self.set_bit('enemy_team', chosen.get_bit('enemy_team'))
+            self.set_bit('alternate_team', chosen.get_bit('alternate_team'))
+            assert self.allegiance == self._chocobo_rider.allegiance
+            return True
         self.x, self.y = (old_x, old_y)
 
     def check_no_collisions(self):
@@ -4953,7 +5045,8 @@ class UnitObject(TableObject):
         self.fix_palette()
 
         if (self.is_chocobo and self.encounter is not None
-                and self.encounter.num_characters > 0):
+                and self.encounter.num_characters > 0
+                and self.get_bit('always_present')):
             self.attempt_chocobo_knight()
 
         if self.is_important and self.map is not None:
@@ -4966,7 +5059,8 @@ class UnitObject(TableObject):
                     assert (self.x == self.old_data['x'] and
                             self.y == self.old_data['y'] and
                             self.map == self.old_map and False in badness
-                            and not hasattr(self.map, '_loaded_from'))
+                            and hasattr(self, '_fixed_initial_coordinates')
+                            and self._fixed_initial_coordinates)
             except AssertionError:
                 self.relocate_nearest_good_tile()
                 return self.preclean()
@@ -5092,6 +5186,20 @@ class UnitObject(TableObject):
                          self.get_bit('always_present', old=True))
             self.set_bit('randomly_present',
                          self.get_bit('randomly_present', old=True))
+
+        old_pos = self.old_data['x'], self.old_data['y'], self.is_upper_old
+        new_pos = self.x, self.y, self.is_upper
+        if (new_pos != old_pos
+                and hasattr(self, '_fixed_initial_coordinates')
+                and self._fixed_initial_coordinates):
+            if hasattr(self.map, '_loaded_from'):
+                old_x, old_y = self.old_data['x'], self.old_data['y']
+                tiles = self.map.get_tiles_compare_attribute(
+                    'bad_regardless', False, upper=self.is_upper_old)
+                assert self.map.index == self.old_map.index
+                assert (old_x, old_y) not in tiles
+            else:
+                raise Exception('Unit must retain initial coordinates.')
 
         if 'easymodo' in get_activated_codes() and self.get_bit('enemy_team'):
             self.level = 1
@@ -5248,6 +5356,7 @@ class ENTDObject(TableObject):
                     else:
                         setattr(spare, attr, template_value)
                 spare.unit_id = 0x90 | (spare.index % 0x10)
+                spare.set_bit('always_present', True)
                 spare.clear_cache()
                 if self.index in self.NERF_ENTDS:
                     spare.set_bit('enemy_team', False)

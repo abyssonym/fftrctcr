@@ -23,7 +23,7 @@ misc2,bit:z1 z2 immortal control enemy_team alternate_team randomly_present alwa
 x,1
 y,1
 # MSB of facing is the floor level
-facing,1
+misc_facing,1
 unknown2,2
 trophy,1
 gil,1
