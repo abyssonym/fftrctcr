@@ -3335,8 +3335,6 @@ class EventObject(TableObject):
 
     def preprocess(self):
         self.cull_messages()
-        if 'automash_dialogue.txt' in get_activated_patches():
-            self.automash()
 
     def load_patch(self, patch):
         if hasattr(self, '_no_modify') and self._no_modify:
@@ -3405,6 +3403,8 @@ class EventObject(TableObject):
         assert self.instructions[-1] == (0xdb, [])
 
     def cleanup(self):
+        if 'automash_dialogue.txt' in get_activated_patches():
+            self.automash()
         self.setup_chocobo_knights()
 
     def write_data(self, filename=None, pointer=None):
