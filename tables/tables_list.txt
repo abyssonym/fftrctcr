@@ -30,6 +30,7 @@ PropositionObject           struct_proposition.txt          36380@WORLD/WLDCORE.
 #PropositionJPObject         struct_proposition_jp.txt       36db4@WORLD/WLDCORE.BIN     8
 #PropositionGilObject        struct_proposition_gil.txt      36dc4@WORLD/WLDCORE.BIN     8
 EventObject                 empty.txt                       pointers_events.txt
+GNSPointerObject            struct_gns_pointer.txt          8ec74@BATTLE.BIN            128
 GNSObject                   empty.txt                       pointers_gns.txt
 MeshObject                  empty.txt                       pointers_meshes.txt
 TextureObject               empty.txt                       pointers_textures.txt

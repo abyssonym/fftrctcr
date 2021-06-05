@@ -1,6 +1,6 @@
 from randomtools.tablereader import (
     TableObject, addresses, names, get_activated_patches, get_open_file,
-    mutate_normal, get_seed, get_global_label, tblpath,
+    mutate_normal, get_seed, get_global_label, tblpath, remove_unused_file,
     get_random_degree, get_difficulty, write_patch,
     SANDBOX_PATH, get_psx_file_manager)
 from randomtools.utils import (
@@ -16,7 +16,7 @@ import randomtools.xml_patch_parser as xml_patch_parser
 from collections import Counter, defaultdict
 from hashlib import md5
 from math import ceil
-from os import path, walk, environ
+from os import path, walk, environ, stat, listdir
 from shutil import copyfile
 from string import digits, ascii_lowercase, ascii_uppercase
 from sys import argv
@@ -2576,6 +2576,7 @@ class EncounterObject(TableObject):
         if not candidates:
             candidates = [map_index for map_index in sorted(self.REPLACED_MAPS)
                           if map_index not in self.DONE_MAPS]
+
         if self.has_movements:
             candidates = [c for c in candidates
                           if self.is_map_movement_compatible(c)]
@@ -2674,6 +2675,7 @@ class EncounterObject(TableObject):
     def randomize(self):
         if self.old_data['entd_index'] == 0:
             return
+
         if self.is_canonical:
             self.replace_map()
             self.reseed('formations')
@@ -3488,8 +3490,72 @@ class MapMixin(TableObject):
                 e.set_occupied()
 
     def write_data(self, filename=None, pointer=None):
+        if hasattr(self, '_is_removed') and self._is_removed:
+            return
         f = get_open_file(self.filename)
         f.write(self.data)
+
+
+class GNSPointerObject(TableObject):
+    @property
+    def is_free(self):
+        return self.sector == 0
+
+    def preprocess(self):
+        new_filenames = set()
+        if self.is_free and GNSObject.WILDCARD_MAP_OPTIONS:
+            chosen = random.choice(GNSObject.WILDCARD_MAP_OPTIONS)
+
+            replacing_filenames, template_index = chosen
+
+            new_filenames = set()
+            new_gns_filename = None
+            textures, meshes = [], []
+            template_basename = 'MAP{0:0>3}'.format(template_index)
+            for template in listdir(path.join(SANDBOX_PATH, 'MAP')):
+                if template.startswith(template_basename):
+                    extension = template.split('.')[-1]
+                    old_filename = path.join(
+                        SANDBOX_PATH, 'MAP', template)
+                    new_filename = path.join(
+                        SANDBOX_PATH, 'MAP',
+                        'RND{0:0>3}.{1}'.format(self.index, extension))
+                    assert new_filename not in new_filenames
+                    new_filenames.add(new_filename)
+                    for rfn in replacing_filenames:
+                        head, tail = path.split(rfn)
+                        if tail == template:
+                            copyfile(rfn, new_filename)
+                            break
+                    else:
+                        copyfile(old_filename, new_filename)
+
+                    filesize = stat(new_filename).st_size
+                    if extension == 'GNS':
+                        new_gns_filename = new_filename
+                    elif filesize == 0x20000:
+                        txo = TextureObject.create_new(filename=new_filename)
+                        txo._loaded_from = old_filename
+                        textures.append(txo)
+                    else:
+                        assert filesize < 0x20000
+                        mo = MeshObject.create_new(filename=new_filename)
+                        mo._loaded_from = old_filename
+                        meshes.append(mo)
+
+            assert new_gns_filename is not None
+            gns = GNSObject.create_new(filename=new_gns_filename)
+            gns._template_index = template_index
+            gns.read_data()
+            assert gns.meshes == meshes
+            gns.textures = textures
+            gns.gns_pointer = self
+
+            GNSObject.WILDCARD_MAP_OPTIONS.remove(chosen)
+            assert chosen not in GNSObject.WILDCARD_MAP_OPTIONS
+
+            EncounterObject.REPLACING_MAPS.append(self.index)
+            EncounterObject.REPLACING_MAPS.append(self.index)
 
 
 class GNSObject(MapMixin):
@@ -3498,7 +3564,10 @@ class GNSObject(MapMixin):
     custom_random_enable = flag
 
     CUSTOM_MAP_PATH = path.join('custom', 'maps')
-    CUSTOM_INDEX_OPTIONS = {}
+    ALTERNATE_MAP_PATH = path.join('custom', 'maps', 'alternate')
+    WILDCARD_MAP_PATH = path.join('custom', 'maps', 'wildcard')
+    ALTERNATE_MAP_OPTIONS = {}
+    WILDCARD_MAP_OPTIONS = []
 
     filename_matcher = re.compile('^MAP(\d\d\d)\.(GNS|(\d+))')
     for parent, children, filenames in sorted(walk(CUSTOM_MAP_PATH)):
@@ -3509,17 +3578,26 @@ class GNSObject(MapMixin):
             if match:
                 indexes.add(match.group(1))
                 filepaths.add(path.join(parent, f))
-        if len(indexes) == 1:
+        if filepaths and len(indexes) == 1:
             index = int(list(indexes)[0])
-            if index not in CUSTOM_INDEX_OPTIONS:
-                CUSTOM_INDEX_OPTIONS[index] = [None]
-            CUSTOM_INDEX_OPTIONS[index].append(sorted(filepaths))
+            if parent.startswith(ALTERNATE_MAP_PATH):
+                if index not in ALTERNATE_MAP_OPTIONS:
+                    ALTERNATE_MAP_OPTIONS[index] = [None]
+                ALTERNATE_MAP_OPTIONS[index].append(sorted(filepaths))
+            elif parent.startswith(WILDCARD_MAP_PATH):
+                WILDCARD_MAP_OPTIONS.append((sorted(filepaths), index))
+            else:
+                print('WARNING: Uncategorized map in %s' % parent)
 
-    if not CUSTOM_INDEX_OPTIONS:
+    if not (ALTERNATE_MAP_OPTIONS or WILDCARD_MAP_OPTIONS):
         print('WARNING: No custom maps found.')
 
     WARJILIS = 42
     ZARGHIDAS = 33
+
+    @classproperty
+    def after_order(self):
+        return [GNSPointerObject]
 
     @cached_property
     def meshes(self):
@@ -3577,10 +3655,10 @@ class GNSObject(MapMixin):
         self.zones
 
     def randomize(self):
-        if self.map_index not in self.CUSTOM_INDEX_OPTIONS:
+        if self.map_index not in self.ALTERNATE_MAP_OPTIONS:
             return
 
-        options = self.CUSTOM_INDEX_OPTIONS[self.map_index]
+        options = self.ALTERNATE_MAP_OPTIONS[self.map_index]
         if 'novanilla' in get_activated_codes():
             options = [o for o in options if o is not None]
 
@@ -3832,7 +3910,90 @@ class GNSObject(MapMixin):
         s += 'Y = 0'
         return s.strip()
 
+    def set_new_sectors(self):
+        psx_fm = get_psx_file_manager()
+        psx_fm.SKIP_REALIGNMENT = True
+
+        new_path = self.filename
+        head, new_name = path.split(new_path)
+        template = psx_fm.get_file(GNSObject.get(0).filename)
+        imported = psx_fm.import_file(new_name, filepath=new_path,
+                                      template=template)
+        assert self.gns_pointer.is_free
+        self.gns_pointer.sector = imported.target_sector
+
+        sector_map = {}
+        meshes, textures = [], []
+        for obj in self.meshes + self.textures:
+            old_path = obj._loaded_from
+            template = psx_fm.get_file(old_path)
+            old_sector = template.target_sector
+            new_path = obj.filename
+            with open(old_path, 'rb') as f:
+                with open(new_path, 'rb') as g:
+                    same_data = f.read() == g.read()
+
+            if same_data:
+                remove_unused_file(obj.filename)
+                obj._is_removed = True
+                sector_map[old_sector] = None
+                continue
+
+            head, new_name = path.split(new_path)
+            imported = psx_fm.import_file(new_name, filepath=new_path,
+                                          template=template)
+            sector_map[old_sector] = imported
+            if obj in self.meshes:
+                meshes.append(imported)
+            elif obj in self.textures:
+                textures.append(imported)
+
+        f = get_open_file(self.filename)
+        num_rows = 0
+        while True:
+            row_index = num_rows * 20
+            f.seek(row_index)
+            line = f.read(20)
+            if len(line) != 20:
+                break
+            num_rows += 1
+
+            f.seek(row_index + 4)
+            filetype = int.from_bytes(f.read(2), byteorder='little')
+            f.seek(row_index + 8)
+            sector = int.from_bytes(f.read(4), byteorder='little')
+            f.seek(row_index + 12)
+            filesize = int.from_bytes(f.read(4), byteorder='little')
+
+            if filetype == 0x3101:
+                continue
+            if sector not in sector_map:
+                continue
+            imported = sector_map[sector]
+            if imported is None:
+                continue
+
+            f.seek(row_index + 8)
+            f.write(imported.target_sector.to_bytes(
+                length=4, byteorder='little'))
+
+            f.seek(row_index + 12)
+            assert not imported.filesize % 0x800
+            f.write(imported.filesize.to_bytes(length=4, byteorder='little'))
+
+            if filetype == 0x1701:
+                assert imported in textures
+            elif filetype in (0x2e01, 0x2f01, 0x3001):
+                assert imported in meshes
+            else:
+                raise Exception('Unknown map file type.')
+
     def cleanup(self):
+        if hasattr(self, '_template_index'):
+            assert hasattr(self, 'textures')
+            assert hasattr(self, 'gns_pointer')
+            self.set_new_sectors()
+
         if hasattr(self, '_tile_cache'):
             del(self._tile_cache)
 
@@ -5941,7 +6102,7 @@ class SpriteMetaObject(TableObject):
             psx_fm.SKIP_REALIGNMENT = True
             template = psx_fm.get_file(self.image.filename)
             assert template
-            new_name = 'RANDO{0:0>2X}.SPR'.format(self.index)
+            new_name = 'RND{0:0>2X}.SPR'.format(self.index)
             new_path = path.join(template.dirname, new_name)
             assert not hasattr(self, '_loaded_from')
             self._loaded_from = new_path
