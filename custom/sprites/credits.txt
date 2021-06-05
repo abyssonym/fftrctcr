@@ -1,0 +1,792 @@
+10y0girl.spr (TYPE1)
+    SPRITE: Zozma
+    PORTRAIT: Zozma
+    PALETTES: Zozma
+
+20wcomplete.spr (TYPE1)
+    SPRITE: Zozma
+    PORTRAIT: Zozma
+    PALETTES: Zozma
+
+Aeris.spr (TYPE2, 5 palettes)
+    SPRITE: ???
+    PORTRAIT: ???
+    PALETTES: Celdia, Lijj
+
+AerisBB.spr (TYPE2)
+    SPRITE: Miroshi Beshima
+    PORTRAIT: Miroshi Beshima
+    PALETTES: Miroshi Beshima
+
+Ajora.spr (TYPE2)
+    SPRITE: Zozma
+    PORTRAIT: Zozma
+    PALETTES: Zozma
+
+Alucard final.spr (TYPE1)
+    SPRITE: Kyousukeee
+    PORTRAIT: Kyousukeee, Smash
+
+Archael.SPR (TYPE1)
+    SPRITE: Cheetah
+    PORTRAIT: Cheetah
+    PALETTES: Cheetah
+
+Babus.spr (TYPE2)
+    SPRITE: Twinees, Smash
+    PORTRAIT: Twinees
+
+Balbanes.spr (TYPE1)
+    SPRITE: Bloodthirster0, Seushiro
+    PORTRAIT: Bloodthirster0, Seushiro
+    PALETTES: Bloodthirster0, Seushiro
+
+BanonLodeKnight.spr (TYPE1)
+    SPRITE: Knox
+    PORTRAIT: Mav
+
+Barret Wallace.spr (TYPE1)
+    SPRITE: Twinees, Zozma
+    PORTRAIT: Twinees
+
+Blansch.SPR (TYPE1)
+    SPRITE: Zozma
+    PORTRAIT: Zozma
+    PALETTES: Zozma
+
+Blue_Mage_m.spr (TYPE2, 5 palettes)
+    SPRITE: Kagebunji, Mando
+    PORTRAIT: Kagebunji
+
+Bolmna.SPR (TYPE1)
+    SPRITE: Zozma
+    PORTRAIT: Zozma
+    PALETTES: Zozma
+
+CadetFemale.spr (TYPE2, 5 palettes)
+    SPRITE: Kagebunji
+    PORTRAIT: Kagebunji
+    PALETTES: Kagebunji
+
+Canoneer5pl.spr (TYPE2, 5 palettes)
+    SPRITE: Jon
+    PORTRAIT: Smash
+
+CavalierGeneric.SPR (TYPE1, 5 palettes)
+    SPRITE: Smash
+    PORTRAIT: Smash
+    PALETTES: Smash
+
+Cecil_DK.spr (TYPE1)
+    SPRITE: CidIII, Mando
+
+Cid Highwind.spr (TYPE1)
+    SPRITE: Twinees
+    PORTRAIT: Twinees
+    PALETTES: Twinees
+
+Cloud (Ver.2).spr (TYPE1)
+    SPRITE: ???, Jimmyjw88
+    PORTRAIT: ???
+
+Crusader.spr (TYPE1, 5 palettes)
+    SPRITE: Izirudo
+    PORTRAIT: Lijj
+
+Cyan.spr (TYPE1)
+    SPRITE: Kagebunji
+    PORTRAIT: Darkholme
+
+DEB.SPR (TYPE1)
+    SPRITE: Zozma
+    PORTRAIT: Zozma
+    PALETTES: Zozma
+
+Dancer_new.spr (TYPE2, 5 palettes)
+    SPRITE: Smash
+    PORTRAIT: Square-Enix
+    PALETTES: Kagebunji
+
+Dante.spr (TYPE2)
+    SPRITE: Amici
+    PORTRAIT: Lijj
+
+Dart.spr (TYPE1, 5 palettes)
+    SPRITE: Twinees
+    PORTRAIT: Twinees
+    PALETTES: Mav
+
+Deis.SPR (TYPE1, 3 palettes)
+    SPRITE: Zozma
+    PORTRAIT: Zozma
+    PALETTES: Zozma
+
+DemagogueF.spr (TYPE1, 5 palettes)
+    SPRITE: Celdia, Twinees
+    PORTRAIT: Celdia, Kagebunji
+
+Demetrius.spr (TYPE1)
+    SPRITE: Kagebunji
+    PORTRAIT: Kagebunji
+    PALETTES: Mav
+
+Doga.spr (TYPE2)
+    SPRITE: MiKeMiTchi
+    PORTRAIT: MiKeMiTchi
+
+Dragon_man.spr (MON, 2 palettes)
+    SPRITE: Conman
+    PORTRAIT: Conman
+    PALETTES: Conman
+
+ELID.SPR (TYPE2)
+    SPRITE: Zozma, Luiakyn
+    PORTRAIT: Zozma, Luiakyn
+    PALETTES: Zozma, Luiakyn
+
+Enchanter-F.spr (TYPE2, 5 palettes)
+    SPRITE: R999
+    PORTRAIT: Celdia, RavenOfRazgriz, Square-Enix
+    PALETTES: Celdia, RavenOfRazgriz
+
+Enchanter-M.spr (TYPE2, 5 palettes)
+    SPRITE: R999
+    PORTRAIT: Celdia, RavenOfRazgriz, Square-Enix
+    PALETTES: Celdia, RavenOfRazgriz
+
+FFTKent.SPR (TYPE1)
+    SPRITE: Smash
+    PORTRAIT: Smash
+    PALETTES: Smash
+
+FFTSain.SPR (TYPE1)
+    SPRITE: Smash
+    PORTRAIT: Smash
+    PALETTES: Smash
+
+F_RoninV2.spr (TYPE1, 6 palettes)
+    SPRITE: Atma, Lijj, Mando
+    PORTRAIT: Lijj, Twinees
+    PALETTES: Lijj
+
+Fayt.spr (TYPE1)
+    SPRITE: DarkShade
+    PORTRAIT: DarkShade
+
+Female Berserker.spr (TYPE2, 5 palettes)
+    SPRITE: Twinees
+    PORTRAIT: Twinees
+    PALETTES: Twinees
+
+FemaleAlchemist.spr (TYPE2, 5 palettes)
+    SPRITE: Choto, Square-Enix
+    PALETTES: Choto
+
+Flan.spr (MON, 4 palettes)
+    SPRITE: Choto
+    PORTRAIT: Lijj
+    PALETTES: Choto
+
+Frog Sprite (Final).spr (TYPE1)
+    SPRITE: Saigas
+    PORTRAIT: Square-Enix
+
+GaffyNoHelmet.SPR (TYPE1)
+    SPRITE: Cheetah, Cyberbade
+    PORTRAIT: Cheetah, Cyberbade
+    PALETTES: Cheetah, Cyberbade
+
+Gambler_m.spr (TYPE1, 8 palettes)
+    SPRITE: MiKeMiTchi, Mando
+    PORTRAIT: MiKeMiTchi
+
+Gambler_w.spr (TYPE2, 6 palettes)
+    SPRITE: R999
+    PORTRAIT: Mav, Mando
+
+Garnet.spr (TYPE1)
+    SPRITE: Kagebunji
+    PORTRAIT: Jimmyjw88
+
+Gate.spr (MON)
+    SPRITE: Kokojo
+    PORTRAIT: Kokojo
+
+Gelwan.SPR (TYPE2)
+    SPRITE: Zozma
+    PORTRAIT: Zozma
+    PALETTES: Zozma
+
+Generic Female Ninja.spr (TYPE1, 5 palettes)
+    SPRITE: Kagebunji
+    PORTRAIT: Kagebunji, Twinees, Mav
+
+Generic Female Thief.spr (TYPE1, 5 palettes)
+    SPRITE: Ran Master 27
+    PORTRAIT: Ran Master 27
+    PALETTES: Ran Master 27
+
+Generic_Female_Assassin.spr (TYPE2, 5 palettes)
+    SPRITE: Kagebunji, Smash
+    PORTRAIT: Kagebunji, Mav, Twinees
+
+Gevaerd.spr (TYPE1)
+    SPRITE: Bloodthirster0, MiKeMiTchi
+    PORTRAIT: Mav
+
+Golagros.spr (TYPE1)
+    SPRITE: Zozma
+    PORTRAIT: Zozma
+    PALETTES: Zozma
+
+Guardian Female.spr (TYPE1, 5 palettes)
+    SPRITE: Kagebunji
+    PORTRAIT: Twinees
+    PALETTES: Kagebunji
+
+Guardian Male.spr (TYPE1, 5 palettes)
+    SPRITE: Kagebunji
+    PORTRAIT: Mav
+    PALETTES: Mav
+
+Hanzo.spr (TYPE1, 5 palettes)
+    SPRITE: Celdia, Squaresoft
+    PORTRAIT: Celdia, Squaresoft
+    PALETTES: Celdia, Squaresoft
+
+Hector.spr (TYPE1, 5 palettes)
+    SPRITE: Kagebunji, Jimmy, Twinees
+    PORTRAIT: Kagebunji, Twinees
+    PALETTES: Mav
+
+Ignis.SPR (TYPE2)
+    SPRITE: Zozma
+    PORTRAIT: Zozma
+    PALETTES: Zozma
+
+Iron.spr (MON )
+    SPRITE: Luiakyn
+    PORTRAIT: Curu
+    PALETTES: Luiakyn
+
+Karsten.SPR (TYPE1)
+    SPRITE: Zozma
+    PORTRAIT: Zozma
+    PALETTES: Zozma
+
+Ken.spr (TYPE1)
+    SPRITE: Seushiro, Capcom
+    PORTRAIT: Seushiro
+
+Lady_Frimelda.spr (TYPE1, 5 palettes)
+    SPRITE: Zozma, Twinees
+    PORTRAIT: ???, Smash
+
+Lamia.spr (MON, 3 palettes)
+    SPRITE: Kagebunji, Square-Enix
+    PORTRAIT: Smash, Mav, Twinee
+    PALETTES: Kagebunji
+
+Lazuli.spr (TYPE1)
+    SPRITE: MiKeMiTchi
+    PORTRAIT: MiKeMiTchi
+
+Lenneth.spr (TYPE1, 5 palettes)
+    SPRITE: Kagebunji
+    PORTRAIT: Smash
+    PALETTES: Kagebunji
+
+Lezard Valeth.spr (TYPE1)
+    SPRITE: Lijj
+    PORTRAIT: Lijj
+
+Link.spr (TYPE1, 5 palettes)
+    SPRITE: Jon
+    PORTRAIT: Curu
+    PALETTES: Mav
+
+Llyud.spr (TYPE1)
+    SPRITE: Twinees
+    PORTRAIT: Mav
+    PALETTES: Twinees
+
+Lucavi Follower.spr (TYPE1)
+    SPRITE: Kagebunji
+    PORTRAIT: Seushiro, MiKeMiTchi
+
+Lysay.spr (TYPE2)
+    SPRITE: Kagebunji, Twinees
+    PORTRAIT: Kagebunji
+
+M-Asura.spr (TYPE1, 4 palettes)
+    SPRITE: Shishi-Sensou
+    PORTRAIT: Shishi-Sensou, Kagebunji
+    PALETTES: Shishi-Sensou
+
+MMF.spr (TYPE1, 5 palettes)
+    SPRITE: Lijj
+    PORTRAIT: Lijj
+    PALETTES: Lijj
+
+MMM.spr (TYPE1, 5 palettes)
+    SPRITE: Lijj
+    PORTRAIT: Lijj
+    PALETTES: Lijj
+
+Male Berserker.spr (TYPE1, 5 palettes)
+    SPRITE: Twinees
+    PORTRAIT: Twinees
+    PALETTES: Twinees
+
+Marceline.spr (TYPE1)
+    SPRITE: Zozma, Kagebunji, Nojgaard
+    PORTRAIT: laur- (deviantart), Nojgaard
+    PALETTES: Nojgaard
+
+MarcheVer1.spr (TYPE1)
+    SPRITE: Seushiro
+    PORTRAIT: Seushiro
+    PALETTES: Seushiro
+
+Marshal.spr (TYPE1, 5 palettes)
+    SPRITE: DeadManWalking
+    PORTRAIT: DeadManWalking
+    PALETTES: DeadManWalking
+
+Meliadoul.spr (TYPE1)
+    SPRITE: Tojoe
+    PORTRAIT: Lijj, Twinees
+
+Melodia.spr (TYPE1, 6 palettes)
+    SPRITE: Zozma
+    PORTRAIT: Zozma
+    PALETTES: Zozma
+
+Miang.SPR (TYPE1)
+    SPRITE: Zozma
+    PORTRAIT: Zozma
+    PALETTES: Zozma
+
+Miang2.SPR (TYPE1)
+    SPRITE: Zozma
+    PORTRAIT: Zozma
+    PALETTES: Zozma
+
+Miluda.SPR (TYPE1, 6 palettes)
+    SPRITE: Zozma
+    PORTRAIT: Zozma
+    PALETTES: Zozma
+
+Mime_Unmasked.spr (TYPE2, 5 palettes)
+    SPRITE: Lijj
+    PORTRAIT: Lijj, Smash
+
+Monica.SPR (TYPE1)
+    SPRITE: Zozma
+    PORTRAIT: Smash
+    PALETTES: Zozma
+
+Monica_cape.SPR (TYPE1)
+    SPRITE: Zozma
+    PORTRAIT: Zozma
+    PALETTES: Zozma
+
+Myan.SPR (TYPE1)
+    SPRITE: Zozma
+    PORTRAIT: Zozma
+    PALETTES: Zozma
+
+MysticK_f.spr (TYPE1, 5 palettes)
+    SPRITE: Lijj
+    PORTRAIT: Lijj, Toshiko
+
+NEWAGURI.SPR (TYPE1)
+    SPRITE: Lydyn, Zozma
+    PORTRAIT: Lydyn, Zozma
+    PALETTES: Lydyn, Zozma
+
+Nojgaard.spr (TYPE2)
+    SPRITE: Nojgaard
+    PORTRAIT: Nojgaard
+    PALETTES: Nojgaard
+
+Oberon.spr (TYPE1)
+
+OldSnakev1.0.SPR (TYPE1)
+    SPRITE: Mcracker, Cheetah, Vanya
+    PORTRAIT: Mcracker, Cheetah, Vanya
+    PALETTES: Mcracker, Cheetah, Vanya
+
+OswynFarindon.spr (TYPE1)
+    SPRITE: TheChancellor
+    PORTRAIT: Mav
+
+Parivir_f.spr (TYPE1, 5 palettes)
+    SPRITE: Atma, Lijj, Mando
+    PORTRAIT: Lijj, Twinees
+    PALETTES: Lijj
+
+Parivir_m.spr (TYPE1, 5 palettes)
+    SPRITE: Lijj
+    PORTRAIT: Lijj
+    PALETTES: Lijj
+
+Parivir_m2.spr (TYPE1, 5 palettes)
+    SPRITE: Lijj
+    PORTRAIT: Lijj
+    PALETTES: Lijj
+
+Pieke.SPR (TYPE1)
+    SPRITE: Kuraudo Sutoraifu
+    PORTRAIT: Kuraudo Sutoraifu
+    PALETTES: Kuraudo Sutoraifu
+
+Priest Cat Ears.SPR (TYPE2, 5 palettes)
+    SPRITE: ???
+    PORTRAIT: ???
+    PALETTES: ???
+
+PurpleMystery.SPR (TYPE2, 5 palettes)
+    SPRITE: Cheetah
+    PORTRAIT: Cheetah
+    PALETTES: Cheetah
+
+Ramza Ch2n3 Alt (v1.2) [no spikes].SPR (TYPE1, 5 palettes)
+    SPRITE: Vanya
+    PORTRAIT: Vanya
+    PALETTES: Vanya
+
+Ranger_Blue.spr (TYPE1)
+    SPRITE: Lijj
+    PORTRAIT: Lijj
+    PALETTES: Lijj
+
+Ranger_Green.spr (TYPE1)
+    SPRITE: Lijj
+    PORTRAIT: Lijj
+    PALETTES: Lijj
+
+Ranger_Pink.spr (TYPE1)
+    SPRITE: Lijj
+    PORTRAIT: Lijj
+    PALETTES: Lijj
+
+Ranger_Red.spr (TYPE1)
+    SPRITE: Lijj
+    PORTRAIT: Lijj
+    PALETTES: Lijj
+
+Ranger_Yllw.spr (TYPE1)
+    SPRITE: Lijj
+    PORTRAIT: Lijj
+    PALETTES: Lijj
+
+RedMage v2.0.SPR (TYPE1, 5 palettes)
+    SPRITE: Cheetah
+    PORTRAIT: Cheetah
+    PALETTES: Cheetah
+
+Red_XIII.spr (MON)
+    SPRITE: Twinees
+    PORTRAIT: Twinees
+    PALETTES: Twinees
+
+Rena.SPR (TYPE2, 5 palettes)
+    SPRITE: Kafei
+    PORTRAIT: Kafei, Zozma
+
+Reno.SPR (TYPE1)
+    SPRITE: Seushiro
+    PORTRAIT: RolyTunedIn
+
+Rogue_M.spr (TYPE2, 5 palettes)
+    SPRITE: R999
+    PORTRAIT: Lijj
+    PALETTES: Lijj
+
+Rogue_W.spr (TYPE2, 5 palettes)
+    SPRITE: R999
+    PORTRAIT: Lijj
+    PALETTES: Lijj
+
+Rydia.spr (TYPE2)
+    SPRITE: Kagebunji
+    PORTRAIT: MiKeMiTchi
+
+Samu_M.spr (TYPE1, 5 palettes)
+    SPRITE: Lijj
+    PORTRAIT: Lijj
+    PALETTES: Lijj
+
+Samu_w.spr (TYPE1, 5 palettes)
+    SPRITE: Lijj
+    PORTRAIT: Lijj
+    PALETTES: Lijj
+
+Scholar (Mercenaries).spr (TYPE2, 5 palettes)
+    SPRITE: Jimmyjw88
+    PORTRAIT: Jimmyjw88, Mav
+
+Sentinel.spr (TYPE1, 6 palettes)
+    SPRITE: DeadManWalking
+    PORTRAIT: DeadManWalking
+    PALETTES: DeadManWalking
+
+SephirothVer1.SPR (TYPE1)
+    SPRITE: Smash, Seushiro
+    PORTRAIT: Smash
+
+Shadow.spr (TYPE1, 5 palettes)
+    SPRITE: Master Grand, Lijj
+    PORTRAIT: Lijj
+    PALETTES: Lijj
+
+Snakev1.0.SPR (TYPE1)
+    SPRITE: Cheetah, Mcracker
+    PORTRAIT: Cheetah, Mcracker
+    PALETTES: Cheetah, Mcracker
+
+Soldier.spr (TYPE1)
+    SPRITE: ???, Square-Enix
+    PORTRAIT: ???, Square-Enix
+
+Succubus.spr (TYPE1)
+    SPRITE: Kagebunji
+    PORTRAIT: Twinees, Kagebunji
+
+Tamera.SPR (TYPE1)
+    SPRITE: Zozma
+    PORTRAIT: Zozma
+    PALETTES: Zozma
+
+Teioh.SPR (TYPE1)
+    SPRITE: Zozma
+    PORTRAIT: Zozma
+    PALETTES: Zozma
+
+TidusFFX.spr (TYPE1)
+    SPRITE: Twinees
+    PORTRAIT: MiKeMiTchi
+
+TietraChp3.SPR (TYPE2)
+    SPRITE: Zozma
+    PORTRAIT: Zozma
+    PALETTES: Zozma
+
+Tifa Lockhart.spr (TYPE1)
+    SPRITE: Twinees
+    PORTRAIT: Twinees
+    PALETTES: Twinees
+
+Tifa.spr (TYPE2)
+    SPRITE: Miroshi Beshima
+    PORTRAIT: Zozma
+
+Titan.spr (MON)
+    SPRITE: Kagebunji, Square-Enix
+    PORTRAIT: Kagebunji
+
+Tonberry.spr (MON, 3 palettes)
+    SPRITE: Kagebunji, Square-Enix
+    PORTRAIT: ???
+
+Tortoise.spr (MON, 3 palettes)
+    SPRITE: Kagebunji, Square-Enix
+    PORTRAIT: Kagebunji
+    PALETTES: Kagebunji
+
+Vicks.spr (TYPE1)
+    SPRITE: Srekciv
+    PORTRAIT: Srekciv
+    PALETTES: Srekciv
+
+Viking_F1.spr (TYPE2, 5 palettes)
+    SPRITE: Lijj
+    PORTRAIT: Lijj
+    PALETTES: Lijj
+
+Viking_F2.spr (TYPE2, 5 palettes)
+    SPRITE: Lijj
+    PORTRAIT: Lijj
+    PALETTES: Lijj
+
+Vincent Valentine.spr (TYPE2)
+    SPRITE: Twinees
+    PORTRAIT: Twinees
+    PALETTES: Twinees
+
+Warlock_M.spr (TYPE2, 5 palettes)
+    SPRITE: R999
+    PORTRAIT: Twinees
+    PALETTES: Lijj
+
+Warlock_W.spr (TYPE2, 5 palettes)
+    SPRITE: Lijj
+    PORTRAIT: Twinees
+    PALETTES: Lijj
+
+Warrior M Spikey.SPR (TYPE1, 5 palettes)
+    SPRITE: Vanya
+    PORTRAIT: Vanya
+    PALETTES: Vanya
+
+Werewolf.SPR (MON, 3 palettes)
+    SPRITE: Kagebunji, Nippon Ichi Software
+    PORTRAIT: Twinees
+    PALETTES: Kagebunji
+
+Wolf Knight.spr (TYPE1)
+    SPRITE: Wolfran
+    PORTRAIT: Lijj
+
+WolfV3.3.spr (MON, 4 palettes)
+    SPRITE: Wolfran
+    PORTRAIT: Wolfran
+    PALETTES: Wolfran
+
+Young Izlude.spr (TYPE1)
+    SPRITE: Silent One
+    PORTRAIT: Mav
+
+Yuffie.spr (TYPE1, 2 palettes)
+    SPRITE: ???, Mando
+    PORTRAIT: ???, Mando
+
+ZARUMOU.SPR (TYPE2)
+    SPRITE: Bastardpoetry
+    PORTRAIT: Bastardpoetry
+    PALETTES: Bastardpoetry
+
+Zack Fair.SPR (TYPE1)
+    SPRITE: ???, Green Archer
+    PORTRAIT: ???, Green Archer
+    PALETTES: ???, Green Archer
+
+Zelda (Legend of Zelda).spr (TYPE2)
+    SPRITE: Kagebunji
+    PORTRAIT: Twinees
+
+Zerke.SPR (TYPE1)
+    SPRITE: Zozma
+    PORTRAIT: Zozma
+    PALETTES: Zozma
+
+Zodiac.SPR (TYPE1)
+    SPRITE: Zozma
+    PORTRAIT: Xifanie
+    PALETTES: Zozma
+
+Zozma.SPR (TYPE1)
+    SPRITE: Zozma
+    PORTRAIT: Zozma
+    PALETTES: Zozma
+
+beatrix.spr (TYPE1)
+    SPRITE: Zozma
+    PORTRAIT: ???
+
+bmm.spr (TYPE2, 5 palettes)
+    SPRITE: Lijj
+    PORTRAIT: Lijj
+    PALETTES: Lijj
+
+bmw.spr (TYPE2, 5 palettes)
+    SPRITE: Lijj
+    PORTRAIT: Lijj
+    PALETTES: Lijj
+
+crono1.SPR (TYPE2)
+    SPRITE: Zozma
+    PORTRAIT: Zozma
+    PALETTES: Zozma
+
+dark knight.spr (TYPE1)
+    SPRITE: Jon
+    PORTRAIT: Lijj
+    PALETTES: Jon
+
+esperellaplay.spr (MON)
+    SPRITE: Conman
+    PORTRAIT: Conman
+
+highwhitemage.spr (TYPE2)
+    SPRITE: Jon
+    PORTRAIT: Jon
+    PALETTES: Jon
+
+lust.SPR (TYPE2)
+    SPRITE: Zozma
+    PORTRAIT: Zozma
+    PALETTES: Zozma
+
+magneto.spr (TYPE1)
+    SPRITE: Conman
+    PORTRAIT: Conman
+
+misty.SPR (TYPE1)
+    SPRITE: Zozma
+    PORTRAIT: Curu
+    PALETTES: Zozma
+
+neocloud.SPR (TYPE1)
+    SPRITE: Kuraudo Sutoraifu
+    PORTRAIT: Kuraudo Sutoraifu
+    PALETTES: Kuraudo Sutoraifu
+
+paladin_f.spr (TYPE1, 5 palettes)
+    SPRITE: Lijj
+    PORTRAIT: Twinees
+    PALETTES: Lijj
+
+paladin_m.spr (TYPE1, 5 palettes)
+    SPRITE: Lijj
+    PORTRAIT: Lijj
+    PALETTES: Lijj
+
+ramzafftmercsfinchv1.spr (TYPE1)
+    SPRITE: MiKeMiTchi
+    PORTRAIT: MiKeMiTchi, Seushiro
+
+redmage_m.spr (TYPE1, 5 palettes)
+    SPRITE: Lijj
+    PORTRAIT: Lijj
+    PALETTES: Lijj
+
+redmage_w.spr (TYPE1, 5 palettes)
+    SPRITE: Lijj
+    PORTRAIT: Lijj
+    PALETTES: Lijj
+
+riot.spr (TYPE1)
+    SPRITE: Stewelement
+    PORTRAIT: Smash
+
+skeleton.spr (TYPE1, 5 palettes)
+    SPRITE: MiKeMiTchi
+    PORTRAIT: MiKeMiTchi
+    PALETTES: MiKeMiTchi, Vanya
+
+teta.SPR (TYPE2)
+    SPRITE: Zozma
+    PORTRAIT: Zozma
+    PALETTES: Zozma
+
+tetathief.SPR (TYPE2)
+    SPRITE: Zozma
+    PORTRAIT: Zozma
+    PALETTES: Zozma
+
+wmm.spr (TYPE2, 5 palettes)
+    SPRITE: Lijj
+    PORTRAIT: Lijj
+    PALETTES: Lijj
+
+wmw.spr (TYPE2, 5 palettes)
+    SPRITE: Lijj
+    PORTRAIT: Lijj
+    PALETTES: Lijj
+
+young kletian.spr (TYPE2, 5 palettes)
+    SPRITE: Silent One
+    PORTRAIT: MiKeMiTchi
+

@@ -1,0 +1,2 @@
+sector,4
+sprite_size,4

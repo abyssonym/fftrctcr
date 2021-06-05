@@ -2,7 +2,7 @@ from randomtools.tablereader import (
     TableObject, addresses, names, get_activated_patches, get_open_file,
     mutate_normal, get_seed, get_global_label, tblpath,
     get_random_degree, get_difficulty, write_patch,
-    SANDBOX_PATH)
+    SANDBOX_PATH, get_psx_file_manager)
 from randomtools.utils import (
     classproperty, cached_property, clached_property,
     read_lines_nocomment, utilrandom as random)
@@ -17,6 +17,7 @@ from collections import Counter, defaultdict
 from hashlib import md5
 from math import ceil
 from os import path, walk, environ
+from shutil import copyfile
 from string import digits, ascii_lowercase, ascii_uppercase
 from sys import argv
 from traceback import format_exc
@@ -256,6 +257,7 @@ class JobObject(TableObject):
         ]
     SQUIRE_INDEX = 0x4a
     MIME_INDEX = 0x5d
+    CHOCOBO_INDEX = 0x5e
 
     ARC_WITCH = 0x21
     ALTIMA_NICE_BODY = 0x41
@@ -5276,6 +5278,7 @@ class ENTDObject(TableObject):
         lange(1, 9) + lange(0xd, 0x21) + lange(0x25, 0x2d) +
         lange(0x31, 0x45) + lange(0x49, 0x51) + lange(0x52, 0xfd) +
         lange(0x180, 0x1d6))
+    LAST_NONTEST = 0x1d5
     NAMED_GENERICS = {}
 
     DEEP_DUNGEON = set(
@@ -5567,14 +5570,468 @@ class ENTDObject(TableObject):
 
 TEST_PALETTE_INDEX = 2
 class FormationPaletteObject(TableObject):
+    @property
+    def name(self):
+        if not names.formpalettes[self.index].strip():
+            return None
+        return path.join(SANDBOX_PATH, 'BATTLE',
+                         names.formpalettes[self.index])
+
     def cleanup(self):
         if DEBUG:
             self.colors[TEST_PALETTE_INDEX] = 0x7c1f
 
-class SpritePaletteObject(TableObject):
+
+class FormationSpriteMetaObject(TableObject):
+    @classproperty
+    def after_order(self):
+        return [SpriteMetaObject, SpriteImageObject]
+
+    @property
+    def name(self):
+        if not names.formsprites[self.index].strip():
+            return None
+        return path.join(SANDBOX_PATH, 'BATTLE', names.formsprites[self.index])
+
+    @property
+    def image(self):
+        if not self.name:
+            return
+        sio = SpriteImageObject.get_by_name(self.name)
+        assert sio is not None
+        return sio
+
+    @property
+    def sprite_meta(self):
+        if not self.image:
+            return None
+
+        metas = [smo for smo in SpriteMetaObject.every
+                 if smo.old_image is self.image]
+        temp = [m for m in metas
+                if m.SQUIRE_INDEX <= m.index < m.TIAMAT_INDEX]
+        if temp:
+            metas = temp
+
+        assert len(metas) == 1
+        return metas[0]
+
     def cleanup(self):
-        if DEBUG:
-            self.colors[TEST_PALETTE_INDEX] = 0x7c1f
+        if not self.image:
+            return
+
+        meta = self.sprite_meta
+        if meta.old_seq_name in ('CYOKO', 'RUKA'):
+            return
+
+        if hasattr(meta, '_loaded_from'):
+            sprite_file = open(meta._loaded_from, 'rb')
+        else:
+            sprite_file = get_open_file(meta.image.filename)
+
+        sprite_file_image_offset = 0x200
+        if meta.old_seq_name in ('TYPE1', 'TYPE2'):
+            source_x = 0x26
+            source_y = 0
+            assert self.width == 0x18
+        elif meta.old_seq_name == 'MON':
+            source_x = 0x30 + ((0x30 - self.width) // 2)
+            source_y = 0x30 - self.length
+            assert self.width in (0x18, 0x30)
+        else:
+            raise Exception('Unsupported sprite type for UNIT.BIN: %s' % meta.old_seq_name)
+
+        target_x = self.x
+        target_y = self.y
+        if self.unknown >= 0x650000:
+            target_y += 0x100
+        width = self.width
+        length = self.length
+
+        FULL_WIDTH = 0x100
+
+        unit_file = get_open_file(
+            path.join(SANDBOX_PATH, 'EVENT', 'UNIT.BIN'))
+        for y in range(length):
+            sprite_index = ((FULL_WIDTH * (source_y + y)) + source_x) // 2
+            sprite_index += sprite_file_image_offset
+            sprite_file.seek(sprite_index)
+            data = sprite_file.read(width // 2)
+            unit_index = ((FULL_WIDTH * (target_y + y)) + target_x) // 2
+            unit_file.seek(unit_index)
+            unit_file.write(data)
+
+        fps = [fp for fp in FormationPaletteObject.every
+               if fp.name and fp.name.startswith(self.name)]
+        for fp in fps:
+            name, palette_index = fp.name.split(':')
+            palette_index = int(palette_index)
+            sprite_file.seek(palette_index * 0x20)
+            palette = [int.from_bytes(sprite_file.read(2), byteorder='little')
+                       for _ in range(16)]
+            fp.colors = palette
+
+
+class SpritePointerObject(TableObject): pass
+
+
+def get_palette_indexes_from_filename(filename):
+    palettes = []
+    with open(filename, 'rb') as f:
+        for i in range(8):
+            f.seek(i * 0x20)
+            palette = [int.from_bytes(f.read(2), byteorder='little')
+                       for _ in range(16)]
+            palettes.append(palette)
+    return [i for (i, p) in enumerate(palettes) if len(set(p)) > 2]
+
+
+def fill_empty_palettes(filename):
+    valid_indexes = get_palette_indexes_from_filename(filename)
+    if not valid_indexes:
+        return
+
+    chosen_index = min(valid_indexes)
+    with open(filename, 'r+b') as f:
+        f.seek(chosen_index * 0x20)
+        chosen_palette = [int.from_bytes(f.read(2), byteorder='little')
+                          for _ in range(16)]
+        for i in range(8):
+            if i in valid_indexes:
+                continue
+            f.seek(i * 0x20)
+            for color in chosen_palette:
+                f.write(color.to_bytes(length=2, byteorder='little'))
+
+
+class SpriteMetaObject(TableObject):
+    SQUIRE_INDEX = 0x60
+    CHOCOBO_INDEX = 0x86
+    TIAMAT_INDEX = 0x95
+
+    SEQ_NAMES = ['TYPE1', 'TYPE2', 'CYOKO', 'MON',
+                 'N/A', 'RUKA', 'ARUTE', 'KANZEN']
+
+    CUSTOM_SPRITES_PATH = path.join('custom', 'sprites')
+    TAGS_FILEPATH = path.join(CUSTOM_SPRITES_PATH, 'tags.txt')
+    WHITELIST = defaultdict(set)
+    BLACKLIST = defaultdict(set)
+
+    try:
+        for line in read_lines_nocomment(TAGS_FILEPATH):
+            assert ':' in line
+            name, tags = line.split(':')
+            name = name.strip()
+            tags = tags.strip().split()
+            for t in tags:
+                assert t
+                if t.startswith('!'):
+                    BLACKLIST[name].add(t[1:])
+                else:
+                    WHITELIST[name].add(t)
+    except FileNotFoundError:
+        print('WARNING: File not found - {0}'.format(TAGS_FILEPATH))
+
+    REPLACING_SPRITES = defaultdict(list)
+    for parent, children, filenames in sorted(walk(CUSTOM_SPRITES_PATH)):
+        seq_name = path.split(parent)[-1]
+        for f in sorted(filenames):
+            if f.upper().endswith('.SPR'):
+                REPLACING_SPRITES[seq_name].append(path.join(parent, f))
+
+    if not REPLACING_SPRITES:
+        print('WARNING: No custom sprites found.')
+
+    PALETTE_INDEXES = {}
+    for seq_name in REPLACING_SPRITES:
+        for f in REPLACING_SPRITES[seq_name]:
+            PALETTE_INDEXES[f] = get_palette_indexes_from_filename(f)
+
+    DONE_SPRITES = set()
+
+    @classproperty
+    def randomize_order(self):
+        return sorted(self.every, key=lambda e: e.signature)
+
+    @property
+    def name(self):
+        if not self.image:
+            return 'N/A'
+
+        name = self.image.filename
+        head, tail = path.split(name)
+        return tail
+
+    @property
+    def image(self):
+        sp = self.sprite_pointer
+        if (sp.sector == sp.old_data['sector']):
+            return self.old_image
+
+        sector = SpritePointerObject.get(self.index).sector
+        if sector == 0:
+            return
+
+        images = [sio for sio in SpriteImageObject.every
+                  if sio.sector == sector]
+        if not images:
+            return
+        assert len(images) == 1
+
+        return images[0]
+
+    @cached_property
+    def old_image(self):
+        sector = SpritePointerObject.get(self.index).old_data['sector']
+        if sector == 0:
+            return
+
+        images = [sio for sio in SpriteImageObject.every
+                  if sio.sector == sector]
+        assert len(images) == 1
+        return images[0]
+
+    @property
+    def seq_name(self):
+        return self.SEQ_NAMES[self.seq]
+
+    @property
+    def old_seq_name(self):
+        return self.SEQ_NAMES[self.old_data['seq']]
+
+    @property
+    def sprite_pointer(self):
+        return SpritePointerObject.get(self.index)
+
+    @property
+    def required_palettes(self):
+        if hasattr(self, '_required_palettes'):
+            return self._required_palettes
+
+        for smo in SpriteMetaObject.every:
+            smo._required_palettes = set()
+
+        generic_palettes = set()
+        generic_monster_palettes = {0, 1, 2}
+        for u in UnitObject.every:
+            if (u.is_valid or u.is_present
+                    and u.entd.index <= ENTDObject.LAST_NONTEST):
+                graphic = u.old_data['graphic']
+                smo = None
+                if 1 <= graphic < 0x80:
+                    smo = SpriteMetaObject.get(graphic)
+                    palette_index = u.old_data['palette']
+                    palette = smo.image.palettes[palette_index]
+                    if len(set(palette)) > 2:
+                        smo._required_palettes.add(u.old_data['palette'])
+                    else:
+                        smo._required_palettes.add(0)
+                elif graphic in UnitObject.GENERIC_GRAPHICS:
+                    generic_palettes.add(u.old_data['palette'])
+                elif graphic == UnitObject.MONSTER_GRAPHIC:
+                    index = u.old_job.monster_portrait
+                    if index > self.TIAMAT_INDEX:
+                        smo = SpriteMetaObject.get(index)
+                        smo._required_palettes.add(u.old_data['palette'])
+                elif graphic != 0:
+                    raise Exception('Unknown graphic index.')
+
+        for smo in SpriteMetaObject.every:
+            if smo.SQUIRE_INDEX <= smo.index < smo.CHOCOBO_INDEX:
+                smo._required_palettes |= generic_palettes
+            elif smo.CHOCOBO_INDEX <= smo.index <= smo.TIAMAT_INDEX:
+                smo._required_palettes |= generic_monster_palettes
+            smo._required_palettes = sorted(smo._required_palettes)
+
+        return self.required_palettes
+
+    def get_compatible_with(self, image_path):
+        head, image_tail = path.split(image_path)
+        image_white_tags = self.WHITELIST[image_tail]
+        image_black_tags = self.BLACKLIST[image_tail]
+
+        head, self_tail = path.split(self.name)
+        self_white_tags = self.WHITELIST[self_tail]
+        self_black_tags = self.BLACKLIST[self_tail]
+
+        if (image_white_tags & self_black_tags
+                or image_black_tags & self_white_tags):
+            return False
+
+        if ((image_white_tags or self_white_tags)
+                and not (image_white_tags & self_white_tags)):
+            return False
+
+        if len(self.required_palettes) <= 1:
+            return True
+
+        if image_path in self.PALETTE_INDEXES:
+            image_palettes = set(self.PALETTE_INDEXES[image_path])
+        else:
+            image = SpriteImageObject.get_by_name(image_path)
+            image_palettes = set(image.valid_palette_indexes)
+        return set(self.required_palettes) <= image_palettes
+
+    @cached_property
+    def is_valid_replacement(self):
+        if not self.old_image:
+            return False
+        if not self.required_palettes:
+            return False
+        if self.old_image.size < 43008:
+            return False
+        return True
+
+    @property
+    def swap_candidates(self):
+        if self.seq_name in ['TYPE1', 'TYPE2']:
+            allowed_seqs = ('TYPE1', 'TYPE2')
+        else:
+            allowed_seqs = (self.seq_name,)
+
+        candidates = [c for seq_name in allowed_seqs
+                      for c in self.REPLACING_SPRITES[seq_name]]
+        if 'novanilla' not in get_activated_codes():
+            candidates += [smo.image.filename for smo in SpriteMetaObject.every
+                           if smo.image and smo.is_valid_replacement
+                           and smo.old_seq_name in allowed_seqs]
+
+        if self.image.filename not in candidates:
+            candidates.append(self.image.filename)
+
+        candidates = [c for c in candidates if self.get_compatible_with(c)]
+        return candidates
+
+    def randomize(self):
+        if 'partyparty' not in get_activated_codes():
+            return
+
+        if not self.image:
+            return
+
+        candidates = self.swap_candidates
+        temp = [c for c in candidates if c not in self.DONE_SPRITES]
+        if temp:
+            candidates = temp
+
+        if not candidates:
+            return
+
+        chosen = random.choice(candidates)
+        sio = SpriteImageObject.get_by_name(chosen)
+        assert self.sprite_pointer.sector == self.image.sector
+        assert self.sprite_pointer.sprite_size == self.image.size
+        if sio is not None:
+            old_smos = [smo for smo in SpriteMetaObject.every
+                        if smo.old_image is sio]
+            assert len({smo.old_data['seq'] for smo in old_smos}) == 1
+            old_smo = old_smos[0]
+            if old_smo.old_seq_name != self.seq_name:
+                assert ({self.seq_name, old_smo.old_seq_name}
+                        == {'TYPE1', 'TYPE2'})
+                self.seq = old_smo.old_data['seq']
+            assert self.seq_name == old_smo.old_seq_name
+            old_name = self.name
+            self.sprite_pointer.sector = sio.sector
+            self.sprite_pointer.sprite_size = sio.size
+            assert self.sprite_pointer.sector == self.image.sector
+            assert self.sprite_pointer.sprite_size == self.image.size
+        else:
+            psx_fm = get_psx_file_manager()
+            psx_fm.SKIP_REALIGNMENT = True
+            template = psx_fm.get_file(self.image.filename)
+            assert template
+            new_name = 'RANDO{0:0>2X}.SPR'.format(self.index)
+            new_path = path.join(template.dirname, new_name)
+            assert not hasattr(self, '_loaded_from')
+            self._loaded_from = new_path
+            copyfile(chosen, new_path)
+            fill_empty_palettes(new_path)
+            imported = psx_fm.import_file(new_name, filepath=new_path,
+                                          template=template)
+            self.sprite_pointer.sector = imported.target_sector
+            self.sprite_pointer.sprite_size = imported.filesize
+            if self.seq_name in ('TYPE1', 'TYPE2'):
+                if chosen in self.REPLACING_SPRITES['TYPE1']:
+                    assert chosen not in self.REPLACING_SPRITES['TYPE2']
+                    self.seq = self.SEQ_NAMES.index('TYPE1')
+                    assert self.seq_name == 'TYPE1'
+                elif chosen in self.REPLACING_SPRITES['TYPE2']:
+                    assert chosen not in self.REPLACING_SPRITES['TYPE1']
+                    self.seq = self.SEQ_NAMES.index('TYPE2')
+                    assert self.seq_name == 'TYPE2'
+                else:
+                    raise Exception('Wrong SEQ type.')
+            else:
+                assert chosen in self.REPLACING_SPRITES[self.seq_name]
+            assert self.image is None
+
+        self.DONE_SPRITES.add(chosen)
+
+    def cleanup(self):
+        if self.seq_name in ('TYPE1', 'TYPE2'):
+            assert self.old_data['seq'] == self.old_data['shp']
+        if self.old_data['seq'] == self.old_data['shp']:
+            self.shp = self.seq
+
+
+class SpriteImageObject(TableObject):
+    @property
+    def palettes(self):
+        if hasattr(self, '_palettes'):
+            return self._palettes
+
+        self._palettes = []
+        f = get_open_file(self.filename)
+        for i in range(8):
+            f.seek(i * 0x20)
+            palette = [int.from_bytes(f.read(2), byteorder='little')
+                       for _ in range(16)]
+            self._palettes.append(palette)
+
+        return self.palettes
+
+    @property
+    def valid_palette_indexes(self):
+        return [i for i in range(8) if len(set(self.palettes[i])) > 2]
+
+    @cached_property
+    def sector(self):
+        filename = self.filename
+        if filename.startswith(SANDBOX_PATH):
+            filename = filename[len(SANDBOX_PATH):]
+            filename = filename.lstrip(path.sep)
+        psx_fm = get_psx_file_manager()
+        sector = psx_fm.get_file(filename).target_sector
+        return sector
+
+    @cached_property
+    def size(self):
+        f = get_open_file(self.filename)
+        f.seek(0)
+        data = f.read()
+        assert not len(data) % 0x800
+        return len(data)
+
+    @classmethod
+    def get_by_name(self, name):
+        for sio in SpriteImageObject.every:
+            if name == sio.filename:
+                return sio
+
+    def cleanup(self):
+        if not self.valid_palette_indexes:
+            return
+        f = get_open_file(self.filename)
+        chosen_index = min(self.valid_palette_indexes)
+        chosen_palette = self.palettes[chosen_index]
+        assert len(set(chosen_palette)) > 2
+        for i in range(8):
+            f.seek(i * 0x20)
+            if i in self.valid_palette_indexes:
+                continue
+            for color in chosen_palette:
+                f.write(color.to_bytes(length=2, byteorder='little'))
 
 
 def load_event_patch(filename):
@@ -5717,6 +6174,7 @@ if __name__ == '__main__':
             'novanilla': ['novanilla'],
             'bigtide': ['bigtide'],
             'easymodo': ['easymodo'],
+            'partyparty': ['partyparty'],
             }
         run_interface(ALL_OBJECTS, snes=False, codes=codes,
                       custom_degree=True, custom_difficulty=True)
