@@ -1,7 +1,7 @@
 FINAL FANTASY TACTICS Rumble: Chaos: >>The Crashdown<< REMAKE
-Version:    1
-Date:       May 23, 2021
-URL:        https://github.com/abyssonym/fftrctcr
+Version:    3
+Date:       June 05, 2021
+URL:        https://github.com/abyssonym/fftrctcr/releases/latest
 Contact:    https://twitter.com/abyssonym
             https://discord.gg/Vzk2tsm92A
 
@@ -37,8 +37,10 @@ FLAGS:
 
 CODES:
     Secret codes are entered along with flags. The following codes are available:
+        partyparty  Randomize unit sprites, including files in the `custom/sprites` directory.
+                        Sprites can be randomized based on tags. See `custom/sprites/tags.txt`
         bigtide     Include *all* battle events in the map randomization pool. Highly experimental.
-        novanilla   Attempt to replace 100% of all maps in the pool, instead of only some portion.
+        novanilla   Whenever possible, avoid using vanilla assets.
         easymodo    Nerf all enemies to the minimum possible stat values.
 
 RANDOMNESS:
@@ -61,7 +63,11 @@ PATCHES:
 
 CODE & ASSET CONTRIBUTORS:
     ArmoredKori - Alternate map pack
+    Koboko - Custom maps
     Ryason55 - Status effect and stat randomization on weapons & abilities
+
+    The custom sprites were retrieved from the ffhacktics.com public downloads page.
+    For a full list of sprites credits, see `custom/sprites/credits.txt`.
 
 SPECIAL THANKS:
     Deranged_Squirrel_Fighter

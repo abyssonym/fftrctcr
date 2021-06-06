@@ -25,7 +25,7 @@ from traceback import format_exc
 import re
 
 
-VERSION = '2.4'
+VERSION = '3.0'
 ALL_OBJECTS = None
 DEBUG = environ.get('DEBUG')
 
@@ -3549,7 +3549,7 @@ class GNSPointerObject(TableObject):
             new_gns_filename = None
             textures, meshes = [], []
             template_basename = 'MAP{0:0>3}'.format(template_index)
-            for template in listdir(path.join(SANDBOX_PATH, 'MAP')):
+            for template in sorted(listdir(path.join(SANDBOX_PATH, 'MAP'))):
                 if template.startswith(template_basename):
                     extension = template.split('.')[-1]
                     old_filename = path.join(
@@ -6369,10 +6369,24 @@ def handle_patches():
     add_bonus_battles()
 
 
-def write_spoiler():
-    spoiler_filename = '%s.txt' % get_seed()
+def write_spoiler(all_objects):
+    spoiler_filename = 'fftr_spoiler_{0}.txt'.format(get_seed())
+
     f = open(spoiler_filename, 'w+')
-    f.write(JobReqObject.jobtree + '\n\n')
+
+    f.write('{0} v{1} {2} {3} {4} {5}\n'.format(
+        get_global_label(), VERSION, get_flags(), get_seed(),
+        get_random_degree()**0.5, get_difficulty()))
+
+    all_objects = sorted(all_objects, key=lambda x: x.__name__)
+    random_degrees = [(o.random_degree**0.5) for o in all_objects]
+    if len(set(random_degrees)) > 1:
+        f.write('R:{0}\n'.format(' '.join('%s' % rd for rd in random_degrees)))
+    random_diffs = [o.random_difficulty for o in all_objects]
+    if len(set(random_diffs)) > 1:
+        f.write('D:{0}\n'.format(' '.join('%s' % rd for rd in random_diffs)))
+
+    f.write('\n' + JobReqObject.jobtree + '\n\n')
     generics = sorted([j for j in JobObject.every if j.is_generic],
                       key=lambda j: j.name)
 
@@ -6418,7 +6432,7 @@ if __name__ == '__main__':
         for p in xml_patches:
             xml_patch_parser.patch_patch(SANDBOX_PATH, p, verify=True)
 
-        write_spoiler()
+        write_spoiler(ALL_OBJECTS)
         write_cue_file()
         finish_interface()
 
