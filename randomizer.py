@@ -1544,7 +1544,7 @@ class SkillsetObject(TableObject):
 
 class MonsterSkillsObject(TableObject):
     flag = 's'
-    custom_random_enable = flag
+    custom_random_enable = 'o'
 
     CHOCOBO_SKILLSET_INDEX = 0xb0
 
@@ -3564,7 +3564,6 @@ class GNSPointerObject(TableObject):
 class GNSObject(MapMixin):
     flag = 'm'
     flag_description = 'custom maps'
-    custom_random_enable = flag
 
     CUSTOM_MAP_PATH = path.join('custom', 'maps')
     ALTERNATE_MAP_PATH = path.join('custom', 'maps', 'alternate')
