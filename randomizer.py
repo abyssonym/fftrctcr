@@ -5386,6 +5386,7 @@ class UnitObject(TableObject):
                 self.secondary = 0
 
         if (self.unit_id > 0 and self.encounter
+                and self.entd.index != ENTDObject.ENDING
                 and self.unit_id in self.encounter.movements):
             self.set_bit('always_present',
                          self.get_bit('always_present', old=True))
@@ -5453,6 +5454,7 @@ class ENTDObject(TableObject):
 
     FINAL_BATTLE = 0x1b9
     CEMETARY = 0x134
+    ENDING = 0x133
 
     NERF_ENTDS = {0x180, 0x183, 0x184, 0x185}
 
