@@ -1013,6 +1013,9 @@ class ItemObject(MutateBoostMixin):
         if self.price > 500:
             self.price = int(round(self.price, -2))
 
+        if self.index == 0:
+            self.price = 0
+
         if self.item_type in self.THROWN_ITEM_TYPES:
             self.enemy_level = max(self.enemy_level, 5)
 
