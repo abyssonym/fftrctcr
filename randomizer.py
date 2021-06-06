@@ -4120,7 +4120,6 @@ class UnitObject(TableObject):
     CHOCOBO_SPRITE_ID = (0x82, 0x86)
     NO_JOB_CHANGE = {0x91}
 
-    ORBONNE_OPENING_ENTD = 0x183
     CHANGED_RAMZA_ENTD_INDEXES = {0x100, 0x133, 0x183, 0x188}
 
     EQUIPMENT_ATTRS = ['head', 'body', 'accessory', 'righthand', 'lefthand']
@@ -5375,9 +5374,22 @@ class UnitObject(TableObject):
             if self.get_gender() == 'female':
                 self.graphic = self.FEMALE_GRAPHIC
 
-        if (self.entd_index == self.ORBONNE_OPENING_ENTD
+        if (self.entd_index == ENTDObject.ORBONNE_OPENING_ENTD
                 and not self.get_bit('enemy_team')):
             self.set_bit('control', True)
+
+        if (self.entd_index in ENTDObject.ORBONNES
+                and self.entd_index != ENTDObject.ORBONNE_OPENING_ENTD
+                and self.character_name != 'Ramza'):
+            units = ENTDObject.get(ENTDObject.ORBONNE_OPENING_ENTD).units
+            for u in units:
+                if u.character_name == self.character_name:
+                    for attr in ('unlocked', 'unlocked_level', 'secondary',
+                                 'reaction', 'support', 'movement',
+                                 'head', 'body', 'accessory',
+                                 'righthand', 'lefthand', 'job_index',
+                                 'level', 'month', 'day', 'brave', 'faith'):
+                        setattr(self, attr, getattr(u, attr))
 
         if self.job.is_lucavi and self.is_valid and not self.job.is_altima:
             if UnitObject.flag in get_flags():
@@ -5458,6 +5470,8 @@ class ENTDObject(TableObject):
     FINAL_BATTLE = 0x1b9
     CEMETARY = 0x134
     ENDING = 0x133
+    ORBONNES = {0x110, 0x183}
+    ORBONNE_OPENING_ENTD = 0x183
 
     NERF_ENTDS = {0x180, 0x183, 0x184, 0x185}
 
