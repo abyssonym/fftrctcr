@@ -745,7 +745,7 @@ class JobObject(TableObject):
         super().mutate()
         if self.is_lucavi:
             self.boost_stats(self.LUCAVI_FACTOR)
-        elif not (self.is_generic or self.is_recruitable):
+        elif not (self.is_generic or self.canonical_relative.is_recruitable):
             self.boost_stats(self.ENEMY_FACTOR)
 
     def preclean(self):
