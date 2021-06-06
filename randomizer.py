@@ -5387,9 +5387,10 @@ class UnitObject(TableObject):
             if not SkillsetObject.get(self.secondary).is_lucavi_appropriate:
                 self.secondary = 0
 
-        if (self.unit_id > 0 and self.encounter
+        if (self.entd.index in ENTDObject.DEEP_DUNGEON or (
+                self.unit_id > 0 and self.encounter
                 and self.entd.index != ENTDObject.ENDING
-                and self.unit_id in self.encounter.movements):
+                and self.unit_id in self.encounter.movements)):
             self.set_bit('always_present',
                          self.get_bit('always_present', old=True))
             self.set_bit('randomly_present',
