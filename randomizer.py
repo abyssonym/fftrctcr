@@ -1444,7 +1444,9 @@ class SkillsetObject(TableObject):
                 final_rsms[chosen].add(rsm)
                 if (rsm in AbilityObject.DUMMIED_ABILITIES
                         and is_generic(chosen)):
-                    you_get_one = True
+                    seed = str(get_seed())
+                    if not ('420' in seed and '69' in seed):
+                        you_get_one = True
                 break
 
         done_skillsets = {}
