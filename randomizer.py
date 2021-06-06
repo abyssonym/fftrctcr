@@ -272,6 +272,7 @@ class JobObject(TableObject):
     INNOCENT_STATUS =       0x4000000000
     INVITE_STATUS =         0x0000004000
     FLOAT_STATUS =          0x0000400000
+    DEAD_STATUS =           0x0000000020
 
     BANNED_RSMS = [0x1bb, 0x1e1, 0x1e4, 0x1e5, 0x1f1]
     LUCAVI_INNATES = (lange(0x1a6, 0x1a9) + [0x1aa] + lange(0x1ac, 0x1b0)
@@ -425,6 +426,12 @@ class JobObject(TableObject):
     @property
     def is_generic(self):
         return JobObject.SQUIRE_INDEX <= self.index <= JobObject.MIME_INDEX
+
+    @property
+    def is_dead(self):
+        status = (self.old_data['start_status'] |
+                  self.old_data['innate_status'])
+        return status & JobObject.DEAD_STATUS
 
     @clached_property
     def ranked_generic_jobs_candidates(self):
@@ -4197,6 +4204,10 @@ class UnitObject(TableObject):
                 and u.entd.is_valid and u.rank >= 0 and u.is_human_old]
 
     @property
+    def is_dead(self):
+        return self.old_job.is_dead
+
+    @property
     def is_human(self):
         return (self.graphic != self.MONSTER_GRAPHIC
                 and not (self.job.is_monster or self.job.is_lucavi))
@@ -4239,6 +4250,10 @@ class UnitObject(TableObject):
                 and u.old_job.old_data['skillset_index'] > 0
                 and u.get_gender() is not None
                 and u.character_name != 'Ramza']
+        pool = [u for u in pool if u.old_job.character_name == 'NONE'
+                or 1 <= u.old_data['name_index'] <= 0xfd]
+        if self.random_difficulty > 1.0:
+            pool = [u for u in pool if not u.is_dead]
         balmafula = [u for u in self.ranked if u.character_name == 'Balmafula'
                      and u.get_gender() == 'female']
         balmafula = random.choice(balmafula)
@@ -4720,6 +4735,7 @@ class UnitObject(TableObject):
         self.clear_gender()
         self.set_bit(other.get_gender(), True)
         self.clear_cache()
+        self._copied_from = other
 
     def reset_blank(self):
         self.name_index = 0xff
