@@ -1069,6 +1069,8 @@ class WeaponObject(MutateBoostMixin):
     def cleanup(self):
         if self.range == 0 and self.old_data['range'] != 0:
             self.range = self.old_data['range']
+        if self.old_data['range'] >= 3:
+            self.range = max(self.range, 3)
 
 
 class WeaponStatusObject(TableObject):
