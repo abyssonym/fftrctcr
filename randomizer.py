@@ -327,6 +327,10 @@ class JobObject(TableObject):
     def random_degree(self):
         return JobStatsObject.random_degree
 
+    @classproperty
+    def after_order(self):
+        return [JobReqObject]
+
     @clached_property
     def character_jobs(self):
         from collections import OrderedDict
@@ -794,19 +798,32 @@ class JobObject(TableObject):
                         + self.ranked_generic_jobs_candidates)
             max_index = len(generics) - 1
             index = generics.index(self)
-            ratio = 2 * index / max_index
-            assert 0 <= ratio <= 2
+            ratio = index / max_index
+            assert 0 <= ratio <= 1
 
-            multiplier = (self.random_difficulty ** 0.5) - 1
-            if ratio > 1:
-                multiplier = 1 + (multiplier * (ratio-1))
-            elif ratio < 1:
-                multiplier = 1 - (multiplier * (1-ratio))
+            multiplier = (self.random_difficulty ** 0.5)
+            assert multiplier >= 1
+            if ratio < 0.5:
+                multiplier = 1 / multiplier
+            elif ratio == 0.5:
+                multiplier = 1
+            extremity = abs(2 * (ratio - 0.5))
+            assert 0 <= extremity <= 1
+            multiplier = (extremity * multiplier) + ((1-extremity) * 1)
+            assert multiplier > 0
+            if ratio < 0.5:
+                assert multiplier < 1
+            elif ratio > 0.5:
+                assert multiplier > 1
+            else:
+                assert multiplier == 1
+
             for attrs in self.randomselect_attributes:
                 if isinstance(attrs, tuple):
                     for attr in attrs:
                         variance = sum(random.random() for _ in range(3)) / 3
                         mult = (multiplier * variance) + (1 - variance)
+                        assert mult > 0
                         value = getattr(self, attr)
                         if attr.endswith('growth'):
                             value /= mult
