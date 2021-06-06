@@ -869,6 +869,9 @@ class JobObject(TableObject):
             for attr in self.mutate_attributes:
                 value = getattr(self, attr)
                 oldvalue = self.old_data[attr]
+                if 0 in (value, oldvalue):
+                    value = max(value, oldvalue)
+                    oldvalue = value
                 difference = max(value, oldvalue) / min(value, oldvalue)
                 assert difference >= 1
                 if attr.endswith('growth'):
