@@ -3396,6 +3396,9 @@ class EventObject(TableObject):
             instruction = (0x5f, (rider.unit_id, 0x00, x, y,
                                   elevation, mount.facing))
             mount_instructions.append(instruction)
+            instruction = (0x5f, (mount.unit_id, 0x00, mount.x, mount.y,
+                                  elevation, mount.facing))
+            mount_instructions.append(instruction)
             instruction = (0x28, (rider.unit_id, 0x00, mount.x, mount.y,
                                   elevation, 0x00, 0x7f, 0x01))
             mount_instructions.append(instruction)
