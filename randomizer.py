@@ -6002,12 +6002,15 @@ class SpritePointerObject(TableObject): pass
 
 def get_palette_indexes_from_filename(filename):
     palettes = []
+    done_palettes = set()
     with open(filename, 'rb') as f:
         for i in range(8):
             f.seek(i * 0x20)
             palette = [int.from_bytes(f.read(2), byteorder='little')
                        for _ in range(16)]
-            palettes.append(palette)
+            if tuple(palette) not in done_palettes:
+                palettes.append(palette)
+                done_palettes.add(tuple(palette))
     return [i for (i, p) in enumerate(palettes) if len(set(p)) > 2]
 
 
@@ -6079,6 +6082,7 @@ class SpriteMetaObject(TableObject):
             PALETTE_INDEXES[f] = get_palette_indexes_from_filename(f)
 
     DONE_SPRITES = set()
+    SPRITE_MAP = {}
 
     @classproperty
     def randomize_order(self):
@@ -6151,28 +6155,27 @@ class SpriteMetaObject(TableObject):
                 smo = None
                 if 1 <= graphic < 0x80:
                     smo = SpriteMetaObject.get(graphic)
-                    palette_index = u.old_data['palette']
-                    palette = smo.image.palettes[palette_index]
-                    if len(set(palette)) > 2:
-                        smo._required_palettes.add(u.old_data['palette'])
-                    else:
-                        smo._required_palettes.add(0)
+                    smo._required_palettes.add(0)
                 elif graphic in UnitObject.GENERIC_GRAPHICS:
                     generic_palettes.add(u.old_data['palette'])
                 elif graphic == UnitObject.MONSTER_GRAPHIC:
                     index = u.old_job.monster_portrait
                     if index > self.TIAMAT_INDEX:
                         smo = SpriteMetaObject.get(index)
-                        smo._required_palettes.add(u.old_data['palette'])
+                        if 0 <= u.old_data['palette'] <= 2:
+                            smo._required_palettes.add(u.old_data['palette'])
                 elif graphic != 0:
                     raise Exception('Unknown graphic index.')
 
+        by_name = defaultdict(set)
         for smo in SpriteMetaObject.every:
             if smo.SQUIRE_INDEX <= smo.index < smo.CHOCOBO_INDEX:
-                smo._required_palettes |= generic_palettes
+                by_name[smo.name] |= generic_palettes
             elif smo.CHOCOBO_INDEX <= smo.index <= smo.TIAMAT_INDEX:
-                smo._required_palettes |= generic_monster_palettes
-            smo._required_palettes = sorted(smo._required_palettes)
+                by_name[smo.name] |= generic_monster_palettes
+
+        for smo in SpriteMetaObject.every:
+            smo._required_palettes = sorted(by_name[smo.name])
 
         return self.required_palettes
 
@@ -6240,15 +6243,16 @@ class SpriteMetaObject(TableObject):
         if not self.image:
             return
 
-        candidates = self.swap_candidates
-        temp = [c for c in candidates if c not in self.DONE_SPRITES]
-        if temp:
-            candidates = temp
+        old_name = self.name
+        if old_name in self.SPRITE_MAP:
+            chosen = self.SPRITE_MAP[old_name]
+        else:
+            candidates = self.swap_candidates
+            candidates = [c for c in candidates if c not in self.DONE_SPRITES]
+            if not candidates:
+                return
+            chosen = random.choice(sorted(set(candidates)))
 
-        if not candidates:
-            return
-
-        chosen = random.choice(candidates)
         sio = SpriteImageObject.get_by_name(chosen)
         assert self.sprite_pointer.sector == self.image.sector
         assert self.sprite_pointer.sprite_size == self.image.size
@@ -6298,6 +6302,7 @@ class SpriteMetaObject(TableObject):
             assert self.image is None
 
         self.DONE_SPRITES.add(chosen)
+        self.SPRITE_MAP[old_name] = chosen
 
     def cleanup(self):
         if self.seq_name in ('TYPE1', 'TYPE2'):
@@ -6324,7 +6329,11 @@ class SpriteImageObject(TableObject):
 
     @property
     def valid_palette_indexes(self):
-        return [i for i in range(8) if len(set(self.palettes[i])) > 2]
+        indexes = [i for i in range(8) if len(set(self.palettes[i])) > 2]
+        unique_palettes = {tuple(self.palettes[i]) for i in range(8)}
+        if len(unique_palettes) < len(indexes):
+            indexes = indexes[:len(unique_palettes)]
+        return indexes
 
     @cached_property
     def sector(self):
