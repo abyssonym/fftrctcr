@@ -5937,11 +5937,17 @@ def fill_empty_palettes(filename):
         f.seek(chosen_index * 0x20)
         chosen_palette = [int.from_bytes(f.read(2), byteorder='little')
                           for _ in range(16)]
+        f.seek((chosen_index+8) * 0x20)
+        chosen_portrait = [int.from_bytes(f.read(2), byteorder='little')
+                           for _ in range(16)]
         for i in range(8):
             if i in valid_indexes:
                 continue
             f.seek(i * 0x20)
             for color in chosen_palette:
+                f.write(color.to_bytes(length=2, byteorder='little'))
+            f.seek((i+8) * 0x20)
+            for color in chosen_portrait:
                 f.write(color.to_bytes(length=2, byteorder='little'))
 
 
