@@ -2430,8 +2430,12 @@ class EncounterObject(TableObject):
                         if relx == rely == 0:
                             continue
 
-                        old_x, old_y = get_last_coordinates(v_movements,
-                                                            unit_id)
+                        if i > 0 and not v_movements[unit_id]:
+                            old_x, old_y = get_last_coordinates(movements[i-1],
+                                                                unit_id)
+                        else:
+                            old_x, old_y = get_last_coordinates(v_movements,
+                                                                unit_id)
                         if old_x is not None:
                             x, y = (old_x + relx, old_y + rely)
                         else:
@@ -2446,6 +2450,11 @@ class EncounterObject(TableObject):
                                                             unit_id)
                         if x == old_x and y == old_y:
                             continue
+
+                        unit = self.get_unit_by_id(unit_id)
+                        if unit and code in {0x28, 0x3b}:
+                            unit._is_walking_unit = True
+
                         v_movements[unit_id].append((x, y))
 
                 movements[i] = v_movements
@@ -2457,12 +2466,12 @@ class EncounterObject(TableObject):
                 if e.old_data['map_index'] == self.old_data['map_index']]
         movements = defaultdict(set)
         for e in encs:
-            e_movements = e.get_movements()
-            if not e_movements:
+            e_movementss = e.get_movements()
+            if not e_movementss:
                 continue
-            e_movements = e_movements[0]
-            for u in e_movements:
-                movements[u] |= set(e_movements[u])
+            for e_movements in e_movementss.values():
+                for u in e_movements:
+                    movements[u] |= set(e_movements[u])
         return movements
 
     @cached_property
@@ -2471,12 +2480,12 @@ class EncounterObject(TableObject):
                 if e.old_data['map_index'] == self.old_data['map_index']]
         movements = defaultdict(set)
         for e in encs:
-            e_movements = e.get_movements(codes=(0x28, 0x3b))
-            if not e_movements:
+            e_movementss = e.get_movements(codes=(0x28, 0x3b))
+            if not e_movementss:
                 continue
-            e_movements = e_movements[0]
-            for u in e_movements:
-                movements[u] |= set(e_movements[u])
+            for e_movements in e_movementss.values():
+                for u in e_movements:
+                    movements[u] |= set(e_movements[u])
         return movements
 
     @cached_property
@@ -2578,7 +2587,8 @@ class EncounterObject(TableObject):
                 self.map.set_occupied(u.old_data['x'], u.old_data['y'])
         if self.has_movements and 'bigtide' not in get_activated_codes():
             for u in self.units:
-                if u.unit_id in self.movements:
+                if (u.unit_id in self.movements
+                        and u.get_bit('always_present')):
                     self.map.set_occupied(u.old_data['x'], u.old_data['y'])
                     continue
 
@@ -2592,6 +2602,9 @@ class EncounterObject(TableObject):
     def is_map_movement_compatible(self, c):
         movement_tiles = {(x, y) for u in self.movements
                           for (x, y) in self.movements[u]}
+        movement_tiles |= {
+            (u.x, u.y) for u in self.units
+            if hasattr(u, '_fixed_initial_coordinates')}
         gns = GNSObject.get_by_map_index(c)
         valid_tiles = set(
             gns.get_tiles_compare_attribute('bad_regardless', False))
@@ -2651,22 +2664,17 @@ class EncounterObject(TableObject):
             f.generate(self.map_index, num_characters)
             self.set_formations(f)
 
-        # do this after creating new units?
         units = list(self.units)
         random.shuffle(units)
-        for u in units:
-            if (u.unit_id in self.movements
-                    and u.is_important_map_movements
-                    and 'bigtide' not in get_activated_codes()
-                    and u.unit_id in self.get_movements()[0]):
-                u._fixed_initial_coordinates = True
-                self.map.set_occupied(u.x, u.y)
-
         for u in units:
             if hasattr(u, '_fixed_initial_coordinates'):
                 assert u._fixed_initial_coordinates
                 assert u.x == u.old_data['x']
                 assert u.y == u.old_data['y']
+                self.map.set_occupied(u.x, u.y)
+
+        for u in units:
+            if hasattr(u, '_fixed_initial_coordinates'):
                 continue
             if u.is_present:
                 u.find_appropriate_position()
@@ -2711,6 +2719,14 @@ class EncounterObject(TableObject):
             return
 
         if self.is_canonical:
+            for u in self.units:
+                if (u.unit_id in self.movements
+                        and u.is_important_map_movements
+                        and 'bigtide' not in get_activated_codes()
+                        and u.unit_id in self.get_movements()[0]
+                        and hasattr(u, '_is_walking_unit')
+                        and u._is_walking_unit):
+                    u._fixed_initial_coordinates = True
             self.replace_map()
             self.reseed('formations')
             self.generate_formations()
@@ -3073,8 +3089,7 @@ class WorldConditionalObject(ConditionalMixin):
 class UnitNameObject(TableObject):
     CUSTOM_NAMES_FILEPATH = path.join('custom', 'unit_names.txt')
     try:
-        custom_names = [line.strip() for line in open(CUSTOM_NAMES_FILEPATH)
-                        if line.strip()]
+        custom_names = read_lines_nocomment(CUSTOM_NAMES_FILEPATH)
     except FileNotFoundError:
         print('WARNING: File not found - %s' % CUSTOM_NAMES_FILEPATH)
         custom_names = []
@@ -5303,11 +5318,13 @@ class UnitObject(TableObject):
                 self.x, self.y, 'bad_regardless',
                 upper=self.is_upper, singleton=True)
             try:
-                assert badness is not True
+                replaced_map = hasattr(self.map, '_loaded_from')
+                semibad = isinstance(badness, set) and True in badness
                 if badness is not False:
                     assert (self.x == self.old_data['x'] and
                             self.y == self.old_data['y'] and
-                            self.map == self.old_map and False in badness
+                            self.map == self.old_map and
+                            (semibad or not replaced_map)
                             and hasattr(self, '_fixed_initial_coordinates')
                             and self._fixed_initial_coordinates)
             except AssertionError:
@@ -5848,7 +5865,7 @@ class FormationSpriteMetaObject(TableObject):
             return
 
         if hasattr(meta, '_loaded_from'):
-            sprite_file = open(meta._loaded_from, 'rb')
+            sprite_file = get_open_file(meta._loaded_from)
         else:
             sprite_file = get_open_file(meta.image.filename)
 
@@ -5862,7 +5879,8 @@ class FormationSpriteMetaObject(TableObject):
             source_y = 0x30 - self.length
             assert self.width in (0x18, 0x30)
         else:
-            raise Exception('Unsupported sprite type for UNIT.BIN: %s' % meta.old_seq_name)
+            raise Exception('Unsupported sprite type for UNIT.BIN: %s'
+                            % meta.old_seq_name)
 
         target_x = self.x
         target_y = self.y
