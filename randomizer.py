@@ -40,6 +40,10 @@ def hashstring(s):
     return md5(s.encode('ascii')).hexdigest()
 
 
+def rot90(array):
+    return list(reversed(list(zip(*array))))
+
+
 class MutateBoostMixin(TableObject):
     def mutate(self):
         super().mutate()
@@ -5822,6 +5826,15 @@ class FormationPaletteObject(TableObject):
             self.colors[TEST_PALETTE_INDEX] = 0x7c1f
 
 
+class FormationFacePaletteObject(TableObject):
+    @property
+    def name(self):
+        if not names.formfacepalettes[self.index].strip():
+            return None
+        return path.join(SANDBOX_PATH, 'BATTLE',
+                         names.formfacepalettes[self.index])
+
+
 class FormationSpriteMetaObject(TableObject):
     @classproperty
     def after_order(self):
@@ -5856,10 +5869,7 @@ class FormationSpriteMetaObject(TableObject):
         assert len(metas) == 1
         return metas[0]
 
-    def cleanup(self):
-        if not self.image:
-            return
-
+    def write_unit_bin(self):
         meta = self.sprite_meta
         if meta.old_seq_name in ('CYOKO', 'RUKA'):
             return
@@ -5868,8 +5878,9 @@ class FormationSpriteMetaObject(TableObject):
             sprite_file = get_open_file(meta._loaded_from)
         else:
             sprite_file = get_open_file(meta.image.filename)
-
         sprite_file_image_offset = 0x200
+        FULL_WIDTH = 0x100
+
         if meta.old_seq_name in ('TYPE1', 'TYPE2'):
             source_x = 0x26
             source_y = 0
@@ -5888,8 +5899,6 @@ class FormationSpriteMetaObject(TableObject):
             target_y += 0x100
         width = self.width
         length = self.length
-
-        FULL_WIDTH = 0x100
 
         unit_file = get_open_file(
             path.join(SANDBOX_PATH, 'EVENT', 'UNIT.BIN'))
@@ -5911,6 +5920,81 @@ class FormationSpriteMetaObject(TableObject):
             palette = [int.from_bytes(sprite_file.read(2), byteorder='little')
                        for _ in range(16)]
             fp.colors = palette
+
+    def write_wldface_bin(self):
+        portrait_indexes = [
+            i for i in range(len(names.formfaces))
+            if names.formfaces[i] == names.formsprites[self.index]]
+        assert len(portrait_indexes) <= 1
+        if not portrait_indexes:
+            return
+        portrait_index = portrait_indexes[0]
+
+        meta = self.sprite_meta
+        if hasattr(meta, '_loaded_from'):
+            sprite_file = get_open_file(meta._loaded_from)
+        else:
+            sprite_file = get_open_file(meta.image.filename)
+        sprite_file_image_offset = 0x200
+        FULL_WIDTH = 0x100
+
+        source_x = 0x50
+        source_y = 0x100
+        width = 48
+        length = 32
+
+        portrait = []
+        for y in range(length):
+            sprite_index = ((FULL_WIDTH * (source_y + y)) + source_x) // 2
+            sprite_index += sprite_file_image_offset
+            sprite_file.seek(sprite_index)
+            data = sprite_file.read(width // 2)
+            pixels = []
+            for c in data:
+                pixels.append(c & 0xf)
+                pixels.append(c >> 4)
+            portrait.append(pixels)
+
+        portrait = rot90(portrait)
+
+        width = 32
+        length = 48
+        portraits_per_row = 8
+        portraits_per_block = 40
+        blocklength = 0x100
+        block = portrait_index // portraits_per_block
+        row = (portrait_index % portraits_per_block) // portraits_per_row
+        column = portrait_index % portraits_per_row
+        target_x = column * width
+        target_y = (block * blocklength) + (row * length)
+        face_file = get_open_file(
+            path.join(SANDBOX_PATH, 'EVENT', 'WLDFACE.BIN'))
+        for y in range(length):
+            portrait_index = ((FULL_WIDTH * (target_y + y)) + target_x) // 2
+            pixels = portrait[y]
+            assert len(pixels) == width
+            data = []
+            for p1, p2 in zip(pixels[::2], pixels[1::2]):
+                data.append(p1 | (p2 << 4))
+            data = bytes(data)
+            assert len(data) == width // 2
+            face_file.seek(portrait_index)
+            face_file.write(data)
+
+        for i in range(3):
+            sprite_file.seek((8 + i) * 0x20)
+            palette = [int.from_bytes(sprite_file.read(2), byteorder='little')
+                       for _ in range(16)]
+            valid = []
+            name = '{0}:{1}'.format(self.name, i)
+            for ffp in FormationFacePaletteObject.every:
+                if ffp.name == name:
+                    ffp.colors = palette
+
+    def cleanup(self):
+        if self.name is not None:
+            self.write_unit_bin()
+            self.write_wldface_bin()
 
 
 class SpritePointerObject(TableObject): pass

@@ -38,6 +38,7 @@ UnitObject                  struct_unit.txt                 pointers_units.txt
 TrophyObject                empty.txt                       0                           8192
 ENTDObject                  empty.txt                       0                           512
 FormationPaletteObject      struct_palette.txt              0f000@EVENT/UNIT.BIN        128
+FormationFacePaletteObject  struct_palette.txt              pointers_face_palettes.txt
 FormationSpriteMetaObject   struct_formsprite_meta.txt      ada44@WORLD/WORLD.BIN       83
 SpritePointerObject         struct_sprite_pointer.txt       2dcd4@BATTLE.BIN            155
 SpriteMetaObject            struct_sprite_meta.txt          2d748@BATTLE.BIN            155
@@ -45,8 +46,10 @@ SpriteImageObject           empty.txt                       pointers_sprite_imag
 $characters             names_characters.txt
 $items                  names_items.txt
 $monsters               names_monsters.txt
+$formfaces              names_formfaces.txt
 $formsprites            names_formsprites.txt
 $formpalettes           names_formpalettes.txt
+$formfacepalettes       names_formfacepalettes.txt
 .option                 murond_exit_patch.txt
 .option                 automash_dialogue.txt
 .patch                  patch_dismiss_guests.txt
