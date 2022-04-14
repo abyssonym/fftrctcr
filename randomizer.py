@@ -44,6 +44,10 @@ def rot90(array):
     return list(reversed(list(zip(*array))))
 
 
+def hexify(data):
+    return '-'.join(['{0:0>2X}'.format(c) for c in data])
+
+
 class MutateBoostMixin(TableObject):
     def mutate(self):
         super().mutate()
@@ -1209,7 +1213,6 @@ class SkillsetObject(TableObject):
     flag_description = 'job skillsets'
     custom_random_enable = flag
 
-    BANNED_SKILLS = set([0x28, 0x2d, 0xdb, 0xdc] + lange(0x165, 0x16f))
     MATH_SKILLSETS = {0xa, 0xb, 0xc, 0x10}
     MATH = 0x15
     CHAOS = 0x7c
@@ -1217,6 +1220,13 @@ class SkillsetObject(TableObject):
     BANNED_SKILLSET_SHUFFLE = {0, 1, 2, 3, 6, 8, 0x11, 0x12, 0x13, 0x14, 0x15,
                                0x18, 0x34, 0x38, 0x39, 0x3b, 0x3e, 0x9c, 0xa1
                                } | BANNED_ANYTHING
+
+    @classproperty
+    def BANNED_SKILLS(self):
+        if get_global_label() == 'FFT_TLW':
+            return set([0xdc])
+        else:
+            return set([0x28, 0x2d, 0xdb, 0xdc] + lange(0x165, 0x16f))
 
     @clached_property
     def character_skillsets(self):
@@ -1238,7 +1248,8 @@ class SkillsetObject(TableObject):
 
     @cached_property
     def is_altima_secondary(self):
-        seconds = [u.old_data['secondary'] for u in ENTDObject.get(0x1b9).units
+        seconds = [u.old_data['secondary']
+                   for u in ENTDObject.get(ENTDObject.FINAL_BATTLE).units
                    if u.old_job.is_altima]
         return self.index in seconds
 
@@ -2366,7 +2377,7 @@ class EncounterObject(TableObject):
 
     @property
     def name(self):
-        return 'ENC {0:0>3X} ENTD {1:0>3X} MAP {0:0>3}'.format(
+        return 'ENC {0:0>3X} ENTD {1:0>3X} MAP {2:0>3}'.format(
             self.index, self.entd_index, self.old_data['map_index'])
 
     @property
@@ -2795,10 +2806,44 @@ class ConditionalMixin(TableObject):
             s += line + '\n'
         return s.strip()
 
-    def preprocess(self):
+    def preprocess_tlw(self):
         f = get_open_file(self.filename)
+        instructions = []
+        start_pointer = self.BASE_POINTER + self.instructions_pointer
+        f.seek(start_pointer)
+        start_pointer = (self.BASE_POINTER
+                         + int.from_bytes(f.read(2), byteorder='little'))
+        try:
+            successor = self.get(self.index+1)
+            end_pointer = successor.BASE_POINTER + successor.instructions_pointer
+            f.seek(end_pointer)
+            end_pointer = (successor.BASE_POINTER
+                           + int.from_bytes(f.read(2), byteorder='little'))
+        except KeyError:
+            end_pointer = None
+        f.seek(start_pointer)
+        instructions = []
+        while True:
+            pointer = f.tell()
+            if end_pointer is not None:
+                if pointer > end_pointer:
+                    raise Exception(
+                        'Exceeded instruction space: {0:x}'.format(pointer))
+                if pointer == end_pointer:
+                    break
+            else:
+                peek = f.read(2)
+                if peek == b'\x00\x00':
+                    break
+                f.seek(pointer)
+            instructions.append(self.get_instruction(f))
+        self.instructions = instructions
 
-        index = 0
+    def preprocess(self):
+        if get_global_label() == 'FFT_TLW' and isinstance(self, BattleConditionalObject):
+            return self.preprocess_tlw()
+
+        f = get_open_file(self.filename)
         instructions = []
         while True:
             f.seek(self.BASE_POINTER + self.instructions_pointer
@@ -2807,8 +2852,11 @@ class ConditionalMixin(TableObject):
             if instruction_pointer == 0:
                 break
             f.seek(self.BASE_POINTER + instruction_pointer)
+            peek = f.read(2)
+            if peek == b'\x00\x00':
+                break
+            f.seek(self.BASE_POINTER + instruction_pointer)
             instructions.append(self.get_instruction(f))
-            index += 1
         self.instructions = instructions
 
     @classmethod
@@ -3337,14 +3385,24 @@ class EventObject(TableObject):
         f = get_open_file(self.filename)
         f.seek(self.pointer)
         text_offset = int.from_bytes(f.read(4), byteorder='little')
-        if text_offset >= 0x1800:
+        if get_global_label() == 'FFT_TLW':
+            max_text_offset = 0x2000
+            #if text_offset < max_text_offset:
+            #    max_text_offset = ((text_offset // 0x800) * 0x800)
+            #    if not text_offset % 0x800:
+            #        max_text_offset += 0x800
+            #max_text_offset = max(max_text_offset, 0x1800)
+        else:
+            max_text_offset = 0x1800
+        if text_offset >= max_text_offset:
             assert text_offset == 0xf2f2f2f2
-        length = min(text_offset, 0x1800) - 4
+            assert get_global_label() != 'FFT_TLW'
+        length = min(text_offset, max_text_offset) - 4
         event_data = f.read(length)
-        length = 0x1800 - (length + 4)
+        length = max_text_offset - (length + 4)
         text_data = f.read(length)
 
-        f.seek(self.pointer + 0x1800)
+        f.seek(self.pointer + max_text_offset)
         value = int.from_bytes(f.read(4), byteorder='little')
         if value != 0xf2f2f2f2:
             self._no_modify = True
@@ -3354,7 +3412,7 @@ class EventObject(TableObject):
         self.messages = self.data_to_messages(text_data)
         assert self.instruction_data == event_data[:len(self.instruction_data)]
         assert self.message_data == text_data[:len(self.message_data)]
-        if self.message_indexes and text_offset >= 0x1800:
+        if self.message_indexes and text_offset >= max_text_offset:
             raise Exception('Undefined messages.')
 
     def automash(self):
@@ -5408,12 +5466,15 @@ class UnitObject(TableObject):
             assert 0 <= self.x < self.map.width
             assert 0 <= self.y < self.map.length
 
-        assert (0 <= self.unlocked <=
-                JobObject.MIME_INDEX - JobObject.SQUIRE_INDEX)
+        if self.index == 0x1494 and get_global_label() == 'FFT_TLW':
+            pass
+        else:
+            assert (0 <= self.unlocked <=
+                    JobObject.MIME_INDEX - JobObject.SQUIRE_INDEX)
 
         if (self.character_name == 'Alma'
                 and self.graphic == self.old_data['graphic']):
-            altima = [u for u in ENTDObject.get(0x1b9).units
+            altima = [u for u in ENTDObject.get(ENTDObject.FINAL_BATTLE).units
                       if u.job.index == JobObject.ALTIMA_PERFECT_BODY][0]
             if SkillsetObject.get(altima.secondary).is_generic:
                 self.secondary = altima.secondary
@@ -5515,29 +5576,40 @@ class ENTDObject(TableObject):
     flag = 'u'
     custom_random_enable = flag
 
-    VALID_INDEXES = (
-        lange(1, 9) + lange(0xd, 0x21) + lange(0x25, 0x2d) +
-        lange(0x31, 0x45) + lange(0x49, 0x51) + lange(0x52, 0xfd) +
-        lange(0x180, 0x1d6))
-    LAST_NONTEST = 0x1d5
     NAMED_GENERICS = {}
 
-    DEEP_DUNGEON = set(
-            [0x192] +
-            lange(0xb1, 0xb5) + lange(0xc9, 0xcd) +
-            lange(0xd5, 0xd9) + lange(0xe1, 0xfd))
-    LUCAVI_ENTDS = {0x1a0, 0x1b0, 0x1b9, 0x1c9, 0x1cb}
-    SPECIAL_CASE_SPRITES = LUCAVI_ENTDS | DEEP_DUNGEON
-    WIEGRAF = {0x190, 0x1a8, 0x1b0}
-    VELIUS = 0x1b0
+    @classmethod
+    def set_class_constants(self):
+        self.VALID_INDEXES = (
+            lange(1, 9) + lange(0xd, 0x21) + lange(0x25, 0x2d) +
+            lange(0x31, 0x45) + lange(0x49, 0x51) + lange(0x52, 0xfd) +
+            lange(0x180, 0x1d6))
+        self.LAST_NONTEST = 0x1d5
 
-    FINAL_BATTLE = 0x1b9
-    CEMETARY = 0x134
-    ENDING = 0x133
-    ORBONNES = {0x110, 0x183}
-    ORBONNE_OPENING_ENTD = 0x183
+        self.DEEP_DUNGEON = set(
+                [0x192] +
+                lange(0xb1, 0xb5) + lange(0xc9, 0xcd) +
+                lange(0xd5, 0xd9) + lange(0xe1, 0xfd))
+        self.LUCAVI_ENTDS = {0x1a0, 0x1b0, 0x1b9, 0x1c9, 0x1cb}
+        self.SPECIAL_CASE_SPRITES = self.LUCAVI_ENTDS | self.DEEP_DUNGEON
+        self.WIEGRAF = {0x190, 0x1a8, 0x1b0}
+        self.VELIUS = 0x1b0
 
-    NERF_ENTDS = {0x180, 0x183, 0x184, 0x185}
+        self.FINAL_BATTLE = 0x1b9
+        self.CEMETARY = 0x134
+        self.ENDING = 0x133
+        self.ORBONNES = {0x110, 0x183}
+        self.ORBONNE_OPENING_ENTD = 0x183
+
+        self.NERF_ENTDS = {0x180, 0x183, 0x184, 0x185}
+
+        if get_global_label() == 'FFT_TLW':
+            self.FINAL_BATTLE = 0x17f
+
+    def read_data(self, filename=None, pointer=None):
+        if not hasattr(ENTDObject, 'FINAL_BATTLE'):
+            ENTDObject.set_class_constants()
+        super().read_data(filename, pointer)
 
     @classproperty
     def after_order(self):
@@ -6473,6 +6545,9 @@ def add_bonus_battles():
 
 
 def handle_patches():
+    if get_global_label() == 'FFT_TLW':
+        print('WARNING: RCTCR event patches not implemented for The Lion War.')
+        return
     load_event_patch(path.join(tblpath, 'patch_fur_shop_from_start.txt'))
     load_event_patch(
         path.join(tblpath, 'patch_propositions_from_start.txt'))
@@ -6537,17 +6612,22 @@ if __name__ == '__main__':
             if code in get_activated_codes():
                 print('%s code activated!' % code.upper())
 
-        xml_directory, xml_config = path.split(XML_PATCH_CONFIG_FILEPATH)
-        xml_patches = xml_patch_parser.get_patches(xml_directory, xml_config)
-        for p in xml_patches:
-            xml_patch_parser.patch_patch(SANDBOX_PATH, p)
+        if get_global_label() != 'FFT_TLW':
+            xml_directory, xml_config = path.split(XML_PATCH_CONFIG_FILEPATH)
+            xml_patches = xml_patch_parser.get_patches(xml_directory,
+                                                       xml_config)
+            for p in xml_patches:
+                xml_patch_parser.patch_patch(SANDBOX_PATH, p)
+        else:
+            print('WARNING: XML patches not implemented for The Lion War.')
 
         handle_patches()
 
         clean_and_write(ALL_OBJECTS)
 
-        for p in xml_patches:
-            xml_patch_parser.patch_patch(SANDBOX_PATH, p, verify=True)
+        if get_global_label() != 'FFT_TLW':
+            for p in xml_patches:
+                xml_patch_parser.patch_patch(SANDBOX_PATH, p, verify=True)
 
         write_spoiler(ALL_OBJECTS)
         write_cue_file()

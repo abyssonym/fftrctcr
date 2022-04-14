@@ -1,0 +1,57 @@
+AbilityObject               struct_ability.txt              4f3f0@TLW2_942.21           512
+AbilityAttributesObject     struct_ability_attribute.txt    503f0@TLW2_942.21           357
+AbilityStatusObject         empty.txt                       0                           357
+JobStatsObject              empty.txt                       0                           160
+JobInnatesObject            empty.txt                       0                           160
+JobObject                   struct_job.txt                  518b8@TLW2_942.21           160
+ItemObject                  struct_item.txt                 536b8@TLW2_942.21           254
+WeaponObject                struct_weapon.txt               542b8@TLW2_942.21           128
+WeaponStatusObject          empty.txt                       0                           128
+WeaponProcObject            empty.txt                       0                           128
+ShieldObject                struct_shield.txt               546b8@TLW2_942.21           16
+ArmorObject                 struct_armor.txt                546d8@TLW2_942.21           64
+AccessoryObject             struct_accessory.txt            54758@TLW2_942.21           32
+ChemistItemObject           struct_chemist_item.txt         54798@TLW2_942.21           14
+InflictStatusObject         struct_inflict_status.txt       547c4@TLW2_942.21           128
+ItemAttributesObject        struct_item_attribute.txt       54ac4@TLW2_942.21           80
+SkillsetObject              struct_skillset.txt             55294@TLW2_942.21           176
+MonsterSkillsObject         struct_monster_skills.txt       563c4@TLW2_942.21           48
+PoachObject                 struct_poach.txt                56864@TLW2_942.21           48
+JobReqObject                struct_job_reqs.txt             568c4@TLW2_942.21           19
+JobJPReqObject              struct_job_jp_req.txt           56984@TLW2_942.21           8
+MoveFindObject              struct_move_find.txt            8ee74@BATTLE.BIN            512
+FormationObject             struct_formation.txt            0bbd4@EVENT/ATTACK.OUT      768
+EncounterObject             struct_encounter.txt            10938@EVENT/ATTACK.OUT      512
+MusicObject                 empty.txt                       0                           512
+BattleConditionalObject     struct_conditional.txt          14938@EVENT/ATTACK.OUT      197
+WorldConditionalObject      struct_conditional.txt          30234@WORLD/WLDCORE.BIN     44
+UnitNameObject              empty.txt                       pointers_unit_names.txt
+PropositionObject           struct_proposition.txt          36380@WORLD/WLDCORE.BIN     96
+#PropositionJPObject         struct_proposition_jp.txt       36db4@WORLD/WLDCORE.BIN     8
+#PropositionGilObject        struct_proposition_gil.txt      36dc4@WORLD/WLDCORE.BIN     8
+EventObject                 empty.txt                       pointers_events.txt
+GNSPointerObject            struct_gns_pointer.txt          8ec74@BATTLE.BIN            128
+GNSObject                   empty.txt                       pointers_gns.txt
+MeshObject                  empty.txt                       pointers_meshes.txt
+TextureObject               empty.txt                       pointers_textures.txt
+UnitObject                  struct_unit.txt                 pointers_units.txt
+TrophyObject                empty.txt                       0                           8192
+ENTDObject                  empty.txt                       0                           512
+FormationPaletteObject      struct_palette.txt              0f000@EVENT/UNIT.BIN        128
+FormationFacePaletteObject  struct_palette.txt              pointers_face_palettes.txt
+FormationSpriteMetaObject   struct_formsprite_meta.txt      ada44@WORLD/WORLD.BIN       83
+SpritePointerObject         struct_sprite_pointer.txt       2dcd4@BATTLE.BIN            155
+SpriteMetaObject            struct_sprite_meta.txt          2d748@BATTLE.BIN            155
+SpriteImageObject           empty.txt                       pointers_sprite_images_tlw.txt
+$characters             names_characters_tlw.txt
+$items                  names_items_tlw.txt
+$monsters               names_monsters_tlw.txt
+$formfaces              names_formfaces_tlw.txt
+$formsprites            names_formsprites_tlw.txt
+$formpalettes           names_formpalettes_tlw.txt
+$formfacepalettes       names_formfacepalettes_tlw.txt
+#.option                 murond_exit_patch.txt
+#.option                 automash_dialogue.txt
+#.patch                  patch_dismiss_guests.txt
+.patch                  patch_tlw_disk_fix.txt
+.patch                  patch_tlw_fix.txt
