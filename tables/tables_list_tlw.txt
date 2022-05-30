@@ -54,4 +54,4 @@ $formfacepalettes       names_formfacepalettes_tlw.txt
 #.option                 automash_dialogue.txt
 #.patch                  patch_dismiss_guests.txt
 .patch                  patch_tlw_disk_fix.txt
-.patch                  patch_tlw_fix.txt
+.patch.no_verify        patch_tlw_fix.txt

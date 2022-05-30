@@ -1436,8 +1436,10 @@ class SkillsetObject(TableObject):
             temp.append(random.choice(rsms))
         rsms = temp
         for rsm in AbilityObject.DUMMIED_ABILITIES:
-            assert rsm not in rsms
-            rsms.append(rsm)
+            if get_global_label() != 'FFT_TLW':
+                assert rsm not in rsms
+            if rsm not in rsms:
+                rsms.append(rsm)
         random.shuffle(rsms)
 
         final_rsms = defaultdict(set)
@@ -4317,7 +4319,7 @@ class UnitObject(TableObject):
             u._human_unit_pool_member = None
 
         for u in self.human_unit_pool:
-            u._human_unit_pool_member = self
+            u._human_unit_pool_member = u
 
         for e in ENTDObject.every:
             units = e.units
@@ -4881,11 +4883,25 @@ class UnitObject(TableObject):
             else:
                 available_sprites = [u._target_sprite for u in self.neighbors
                                      if hasattr(u, '_target_sprite')]
+                assert all(len(s) == 3 for s in available_sprites
+                           if not isinstance(s, UnitObject))
+                temp = []
+                for g, j, gender in available_sprites:
+                    if gender == 'monster':
+                        assert g == self.MONSTER_GRAPHIC
+                        j = JobObject.get(j).monster_portrait
+                        assert j >= SpriteMetaObject.CHOCOBO_INDEX
+                    else:
+                        assert g in (self.MALE_GRAPHIC, self.FEMALE_GRAPHIC)
+                    temp.append((g, j))
+                available_sprites = temp
                 test = random.choice(available_sprites)
             if (isinstance(test, UnitObject)
                     and random.random() > self.random_degree ** 0.5):
                 continue
             break
+        assert all(len(s) == 2 for s in available_sprites
+                   if not isinstance(s, UnitObject))
 
         if isinstance(test, UnitObject):
             self.become_another(test)
@@ -4920,6 +4936,7 @@ class UnitObject(TableObject):
         elif tg == self.MONSTER_GRAPHIC:
             mgraphics = [j for (g, j) in available_sprites
                          if g == self.MONSTER_GRAPHIC]
+            assert all(j >= SpriteMetaObject.CHOCOBO_INDEX for j in mgraphics)
             candidates = [j for j in JobObject.every
                           if j.is_monster and j.monster_portrait in mgraphics
                           and j.intershuffle_valid]
