@@ -346,7 +346,7 @@ class JobObject(TableObject):
 
         character_jobs = defaultdict(set)
         for u in UnitObject.every:
-            if u.entd_index >= 0x1db:
+            if u.entd_index > ENTDObject.LAST_NONTEST:
                 continue
             if u.has_unique_name:
                 character_jobs[u.character_name].add(u.old_data['job_index'])
@@ -2326,7 +2326,7 @@ class FormationObject(TableObject):
 
     def preprocess(self):
         if (self.index == 0xe8 and self.map_index == 0x74
-                and self.entd_index == 0x1cc):
+                and self.entd_index == ENTDObject.MUROND_HOLY_PLACE):
             assert all(e.map_index == 0x32 for e in self.encounters)
             self.map_index = 0x32
             self.old_data['map_index'] = 0x32
@@ -2337,7 +2337,6 @@ class EncounterObject(TableObject):
     flag_description = 'enemy and ally formations'
     custom_random_enable = flag
 
-    FIXED_WEATHER_ENTDS = [0x19f, 0x1b5, 0x1c2]
     FIXED_SONGS = {0, 17, 18, 19, 20, 21, 22, 23, 24,
                    27, 28, 29, 30, 31, 32, 33, 35, 40,
                    41, 42, 43, 44, 45, 46, 47, 48, 49, 50,
@@ -2346,12 +2345,7 @@ class EncounterObject(TableObject):
     DUMMIED_SONGS = set(range(81, 97)) - FIXED_SONGS
     CANDIDATE_SONGS = set(range(100)) - FIXED_SONGS
     used_music = set()
-
-    GARILAND = 0x9
-    ENDING = 0x12b
     ENDING_MUSIC = 0x45
-
-    NO_REPLACE = {0x184, 0x185, 0x1c2}
 
     REPLACING_MAPS = [
         1, 4, 8, 9, 11, 14, 15, 18, 20, 21, 23, 24, 26, 37, 38,
@@ -2360,6 +2354,22 @@ class EncounterObject(TableObject):
         115, 116, 117, 118, 119, 125]
     DONE_MAPS = set()
     REPLACED_MAPS = set()
+
+    @classmethod
+    def set_class_constants(self):
+        if get_global_label() == 'FFT_TLW':
+            self.NO_REPLACE = {0x104, 0x106, 0x163}
+            self.FIXED_WEATHER_ENTDS = [0x133, 0x17b, 0x163]
+            self.GARILAND = 3
+            self.ENDING = 0x7c
+            self.MUROND_HOLY_PLACE = 0x70
+            return
+
+        self.NO_REPLACE = {0x184, 0x185, 0x1c2}
+        self.FIXED_WEATHER_ENTDS = [0x19f, 0x1b5, 0x1c2]
+        self.GARILAND = 9
+        self.ENDING = 0x12b
+        self.MUROND_HOLY_PLACE = 0x1b2
 
     @classproperty
     def after_order(self):
@@ -2609,9 +2619,16 @@ class EncounterObject(TableObject):
                     self.map.set_occupied(u.old_data['x'], u.old_data['y'])
                     continue
 
+    def read_data(self, filename=None, pointer=None):
+        if not hasattr(EncounterObject, 'GARILAND'):
+            EncounterObject.set_class_constants()
+        super().read_data(filename, pointer)
+
     def preprocess(self):
         self.set_occupied()
-        if self.index == 0x1b2 and self.formation_indexes == [232, 324]:
+        if (self.index == self.MUROND_HOLY_PLACE
+                and self.formation_indexes == [232, 324]):
+            # Murond Holy Place typo correction
             self.formation_indexes = [323, 324]
             self.old_data['formation_indexes'] = self.formation_indexes
             self.clear_cache()
@@ -3275,8 +3292,6 @@ class PropositionJPObject(TableObject): pass
 
 
 class EventObject(TableObject):
-    ENDING_SCENES = (0x12c, 0x147)
-
     PARAMETER_FILENAME = path.join(tblpath, 'parameters_events.txt')
     PARAMETERS = {}
     for line in read_lines_nocomment(PARAMETER_FILENAME):
@@ -3290,6 +3305,13 @@ class EventObject(TableObject):
             code, parameters = line, ()
         code = int(code, 0x10)
         PARAMETERS[code] = parameters
+
+    @classproperty
+    def ENDING_SCENES(self):
+        if get_global_label() == 'FFT_TLW':
+            return (0x7d, 0x7c)
+        else:
+            return (0x12c, 0x147)
 
     @classmethod
     def data_to_instructions(self, data):
@@ -4224,16 +4246,12 @@ class UnitObject(TableObject):
     DAYS_IN_MONTH = {1: 31, 2: 28, 3: 31, 4: 30, 5: 31, 6: 30,
                      7: 31, 8: 31, 9: 30, 10: 31, 11: 30, 12: 31}
 
-    USED_MAPS = lange(0, 0x14b) + lange(0x180, 0x1d6)
-
     MONSTER_GRAPHIC = 0x82
     MALE_GRAPHIC = 0x80
     FEMALE_GRAPHIC = 0x81
     GENERIC_GRAPHICS = (MALE_GRAPHIC, FEMALE_GRAPHIC)
     CHOCOBO_SPRITE_ID = (0x82, 0x86)
     NO_JOB_CHANGE = {0x91}
-
-    CHANGED_RAMZA_ENTD_INDEXES = {0x100, 0x133, 0x183, 0x188}
 
     EQUIPMENT_ATTRS = ['head', 'body', 'accessory', 'righthand', 'lefthand']
 
@@ -4257,6 +4275,13 @@ class UnitObject(TableObject):
                     'ma':  (0x14000, 0x17fff),
                    },
         }
+
+    @classproperty
+    def CHANGED_RAMZA_ENTD_INDEXES(self):
+        if get_global_label() == 'FFT_TLW':
+            return {0x100, 0x181, 0x101, 0x102}
+        else:
+            return {0x100, 0x133, 0x183, 0x188}
 
     @classproperty
     def after_order(self):
@@ -4886,7 +4911,12 @@ class UnitObject(TableObject):
                 assert all(len(s) == 3 for s in available_sprites
                            if not isinstance(s, UnitObject))
                 temp = []
-                for g, j, gender in available_sprites:
+                for a in available_sprites:
+                    if isinstance(a, UnitObject):
+                        temp.append(a)
+                        continue
+
+                    g, j, gender = a
                     if gender == 'monster':
                         assert g == self.MONSTER_GRAPHIC
                         j = JobObject.get(j).monster_portrait
@@ -4896,10 +4926,12 @@ class UnitObject(TableObject):
                     temp.append((g, j))
                 available_sprites = temp
                 test = random.choice(available_sprites)
+
             if (isinstance(test, UnitObject)
                     and random.random() > self.random_degree ** 0.5):
                 continue
             break
+
         assert all(len(s) == 2 for s in available_sprites
                    if not isinstance(s, UnitObject))
 
@@ -5597,6 +5629,45 @@ class ENTDObject(TableObject):
 
     @classmethod
     def set_class_constants(self):
+        if get_global_label() == 'FFT_TLW':
+            valid = [0x10a, 0x10b, 0x10d, 0x101, 0x104, 0x106, 0x109, 0x10c,
+                     0x102, 0x107, 0x10e, 0x110, 0x111, 0x112, 0x107, 0x115,
+                     0x117, 0x119, 0x182, 0x11d, 0x11e, 0x11f, 0x120, 0x121,
+                     0x122, 0x124, 0x128, 0x12a, 0x12b, 0x12c, 0x12f, 0x130,
+                     0x133, 0x135, 0x138, 0x139, 0x187, 0x13b, 0x13c, 0x13e,
+                     0x13f, 0x140, 0x143, 0x146, 0x147, 0x148, 0x14a, 0x14b,
+                     0x14d, 0x14f, 0x151, 0x152, 0x153, 0x179, 0x17a, 0x17b,
+                     0x17c, 0x17d, 0x17e, 0x17f, 0x157, 0x158, 0x15a, 0x15c,
+                     0x15d, 0x15e, 0x160, 0x161, 0x163, 0x165, 0x166, 0x167,
+                     0x169, 0x16a, 0x16b, 0x16d, 0x16e, 0x16f, 0x173, 0x175,
+                     0x176, 0x177, 0x18a, 0x18b, 0x18c, 0x18d, 0x190, 0x18f,
+                     0x190]
+            self.VALID_INDEXES = sorted(set(
+                lange(1, 9) + lange(0xd, 0x21) + lange(0x25, 0x2d) +
+                lange(0x31, 0x45) + lange(0x49, 0x51) + lange(0x52, 0xfd) +
+                valid))
+            self.LAST_NONTEST = 0x1cb
+
+            self.DEEP_DUNGEON = set(
+                [0x182] +
+                lange(0xb1, 0xb5) + lange(0xc9, 0xcd) +
+                lange(0xd5, 0xd9) + lange(0xe1, 0xfd))
+            self.LUCAVI_ENTDS = {0x135, 0x14f, 0x17f, 0x16d, 0x173}
+            self.SPECIAL_CASE_SPRITES = self.LUCAVI_ENTDS | self.DEEP_DUNGEON
+            self.WIEGRAF = {0x117, 0x1a8, 0x14f}
+            self.VELIUS = 0x14f
+
+            self.FINAL_BATTLE = 0x17f
+            self.CEMETARY = 0x180
+            self.ENDING = 0x181
+            self.ORBONNES = {0x11b, 0x11c, 0x101}
+            self.ORBONNE_OPENING_ENTD = 0x101
+
+            self.MUROND_HOLY_PLACE = 0x175
+
+            self.NERF_ENTDS = {0x10a, 0x101, 0x104, 0x106}
+            return
+
         self.VALID_INDEXES = (
             lange(1, 9) + lange(0xd, 0x21) + lange(0x25, 0x2d) +
             lange(0x31, 0x45) + lange(0x49, 0x51) + lange(0x52, 0xfd) +
@@ -5618,10 +5689,9 @@ class ENTDObject(TableObject):
         self.ORBONNES = {0x110, 0x183}
         self.ORBONNE_OPENING_ENTD = 0x183
 
-        self.NERF_ENTDS = {0x180, 0x183, 0x184, 0x185}
+        self.MUROND_HOLY_PLACE = 0x1cc
 
-        if get_global_label() == 'FFT_TLW':
-            self.FINAL_BATTLE = 0x17f
+        self.NERF_ENTDS = {0x180, 0x183, 0x184, 0x185}
 
     def read_data(self, filename=None, pointer=None):
         if not hasattr(ENTDObject, 'FINAL_BATTLE'):
@@ -5638,11 +5708,25 @@ class ENTDObject(TableObject):
                         {enc.entd_index for enc in EncounterObject.every})
         unused = [ENTDObject.get(i) for i in unused]
         unused = [e for e in unused if not e.is_valid]
+        if get_global_label() == 'FFT_TLW':
+            unused = [e for e in unused if e.index > self.LAST_NONTEST]
         return unused[-1]
 
     @cached_property
     def units(self):
         return [UnitObject.get((self.index << 4) | i) for i in range(0x10)]
+
+    @property
+    def unit_signature(self):
+        units = [u for u in self.units
+                 if u.is_present_old or u.has_unique_name]
+        ss = []
+        for u in units:
+            if u.old_data['graphic'] < 0x80:
+                ss.append('s{0:0>2X}'.format(u.old_data['graphic']))
+            else:
+                ss.append('j{0:0>2X}'.format(u.old_data['job_index']))
+        return ','.join(ss)
 
     @cached_property
     def avg_level(self):
