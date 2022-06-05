@@ -332,7 +332,7 @@ class JobObject(TableObject):
         ('absorb_elem', 'nullify_elem', 'resist_elem', 'weak_elem'): (0xff,)*4,
         }
 
-    @property
+    @classproperty
     def TLW_DARK_KNIGHTS(self):
         if get_global_label() == 'FFT_TLW':
             return {0x37, 0x38}
@@ -367,11 +367,14 @@ class JobObject(TableObject):
 
     @property
     def profile(self):
-        if not self.is_generic:
-            raise NotImplementedError
-
         generics = [j for j in JobObject.every if j.is_generic]
-        assert self in generics
+        if JobObject.TLW_DARK_KNIGHTS:
+            j = JobObject.get(min(JobObject.TLW_DARK_KNIGHTS))
+            assert j not in generics
+            generics.append(j)
+
+        if self not in generics:
+            raise NotImplementedError
 
         s = '/={0:=<19}=\\\n'.format(self.name.upper())
         s += ('| {0:3} | {1:5} | {2:5} |\n'.format('', 'BASE', 'GROW'))
@@ -595,6 +598,8 @@ class JobObject(TableObject):
 
     @property
     def name(self):
+        if self.index in self.TLW_DARK_KNIGHTS:
+            return 'dark knight'
         if self.is_generic:
             return self.GENERIC_NAMES[
                 self.index-JobObject.SQUIRE_INDEX]
@@ -1808,6 +1813,13 @@ class JobReqObject(TableObject):
             if j not in categorized:
                 treestr += recurse(j) + "\n\n"
         treestr = treestr.strip()
+
+        if hasattr(self, 'DKM'):
+            treestr = '{0}\n\nDKM: 1 {1}, 1 {2}\nDKF: 1 {3}, 1 {4}'.format(
+                treestr,
+                self.DKM[0].name, self.DKM[1].name,
+                self.DKF[0].name, self.DKF[1].name)
+
         return treestr
 
     @classmethod
@@ -2112,7 +2124,58 @@ class JobReqObject(TableObject):
         for jro in JobReqObject.every:
             jro.fill_reqs()
 
+        if get_global_label() == 'FFT_TLW':
+            JobReqObject.randomize_dark_knight()
         super().randomize_all()
+
+    @classmethod
+    def randomize_dark_knight(self):
+        FILENAME = JobReqObject.get(0).filename
+        f = get_open_file(FILENAME)
+        MALE_ADDRESS = 0x17900
+        FEMALE_ADDRESS = 0x17910
+
+        addresses = {'DKM':   0x17900,
+                     'DKF': 0x17910}
+        for label in ('DKM', 'DKF'):
+            for _ in range(1000):
+                if label == 'DKM':
+                    candidates = [jro for jro in JobReqObject.every
+                                  if jro.name != 'dan']
+                if label == 'DKF':
+                    candidates = [jro for jro in JobReqObject.every
+                                  if jro.name != 'bar']
+                first = random.choice(candidates)
+                others = [jro for jro in candidates if
+                          not (jro.reqs_are_subset_of(first) or
+                               first.reqs_are_subset_of(jro))]
+                if label == 'DKF' and first in JobReqObject.DKM:
+                    others = [o for o in others if o not in JobReqObject.DKM]
+                if not others:
+                    continue
+                second = random.choice(others)
+                first, second = tuple(sorted((first, second)))
+                setattr(JobReqObject, label, (first, second))
+                req_values = ['0'] * 20
+                for jro in (first, second):
+                    reqs = jro.get_recursive_reqs()
+                    for prefix in reqs:
+                        subreq = JobReqObject.get_by_name(prefix)
+                        index = subreq.index+1 if subreq is not None else 0
+                        newvalue = str(reqs[prefix])
+                        if newvalue > req_values[index]:
+                            req_values[index] = newvalue
+                    assert req_values[jro.index + 1] == '0'
+                    req_values[jro.index + 1] = '1'
+                req_values = int(''.join(req_values), 0x10)
+                f.seek(addresses[label])
+                f.write(req_values.to_bytes(10, byteorder='big'))
+                break
+            else:
+                setattr(JobReqObject, label, (None, None))
+                f.seek(addresses[label])
+                f.write(b'\x00' * 10)
+            assert JobReqObject.DKM
 
     def cleanup(self):
         assert self.get_recursive_reqs()[self.name] == 0
@@ -6718,8 +6781,12 @@ def write_spoiler(all_objects):
         f.write('D:{0}\n'.format(' '.join('%s' % rd for rd in random_diffs)))
 
     f.write('\n' + JobReqObject.jobtree + '\n\n')
-    generics = sorted([j for j in JobObject.every if j.is_generic],
-                      key=lambda j: j.name)
+    generics = [j for j in JobObject.every if j.is_generic]
+    if JobObject.TLW_DARK_KNIGHTS:
+        j = JobObject.get(min(JobObject.TLW_DARK_KNIGHTS))
+        assert j not in generics
+        generics.append(j)
+    generics = sorted(generics, key=lambda j: j.name)
 
     for j in generics:
         f.write(j.profile + '\n\n')
