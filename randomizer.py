@@ -4868,6 +4868,10 @@ class UnitObject(TableObject):
 
     def relocate(self, x, y):
         assert not self.map.get_occupied(x, y)
+        if (hasattr(self, '_fixed_initial_coordinates') and
+                self._fixed_initial_coordinates and
+                not hasattr(self.map, '_loaded_from')):
+            raise IndexError('Unit must retain initial coordinates.')
         if self.is_ally:
             self.map.set_party(x, y)
         else:
