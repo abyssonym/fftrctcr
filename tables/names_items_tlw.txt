@@ -40,7 +40,7 @@ Asura Knife
 Koutetsu Knife
 Bizen Boat
 Murasame
-Heaven<93>s Cloud
+Heaven's Cloud
 Kiyomori
 Muramasa
 Kikuichimoji
@@ -225,7 +225,7 @@ Angel Ring
 Diamond Armlet
 Jade Armlet
 108 Gems
-N<D1>TKai Armlet
+N-Kai Armlet
 Defense Armlet
 Small Mantle
 Leather Mantle
@@ -239,15 +239,15 @@ Cherche
 Setiemson
 Salty Rage
 Potion
-Hi<D1>TPotion
-X<D1>TPotion
+Hi-Potion
+X-Potion
 Ether
-Hi<D1>TEther
+Hi-Ether
 Elixir
 Antidote
 Eye Drop
 Echo Grass
-Maiden<93>s Kiss
+Maiden's Kiss
 Soft
 Holy Water
 Remedy
