@@ -71,7 +71,6 @@ class AbilityObject(TableObject):
         }
 
     INVITATION = 0x74
-    PARASITE = 0x164
     CHARGE_20 = 0x19d
     BALL = 0x189
     JUMPS = lange(0x18a, 0x196)
@@ -95,9 +94,10 @@ class AbilityObject(TableObject):
 
     @cached_property
     def ability_attributes(self):
-        if self.index > self.PARASITE:
+        try:
+            return AbilityAttributesObject.get(self.index)
+        except KeyError:
             return None
-        return AbilityAttributesObject.get(self.index)
 
     @property
     def ability_type(self):
@@ -295,7 +295,7 @@ class JobObject(TableObject):
     MONSTER_JOBS = lange(0x5e, 0x8e) + [0x90, 0x91, 0x96, 0x99, 0x9a]
     STORYLINE_RECRUITABLE_NAMES = {
         'Ramza', 'Mustadio', 'Agrias', 'Meliadoul', 'Rafa', 'Malak', 'Orlandu',
-        'Beowulf', 'Cloud', 'Reis',
+        'Beowulf', 'Cloud', 'Reis', 'Balthier', 'Ashley',
         }
 
     GROUP_RECRUITABLE = 1
@@ -331,6 +331,12 @@ class JobObject(TableObject):
             (VALID_START_STATUSES,)*3,
         ('absorb_elem', 'nullify_elem', 'resist_elem', 'weak_elem'): (0xff,)*4,
         }
+
+    @property
+    def TLW_DARK_KNIGHTS(self):
+        if get_global_label() == 'FFT_TLW':
+            return {0x37, 0x38}
+        return set()
 
     @classproperty
     def random_degree(self):
@@ -411,6 +417,9 @@ class JobObject(TableObject):
 
     @cached_property
     def relatives(self):
+        if self.index in self.TLW_DARK_KNIGHTS:
+            return [j for j in JobObject.every
+                    if j.index in self.TLW_DARK_KNIGHTS]
         if self.character_name in ['NONE', 'RANDOM GENERIC']:
             return [self]
         relatives = [j for j in JobObject.every
@@ -420,7 +429,8 @@ class JobObject(TableObject):
 
     @cached_property
     def canonical_relative(self):
-        if self.character_name in ['NONE', 'RANDOM GENERIC']:
+        if (self.character_name in ['NONE', 'RANDOM GENERIC']
+                and self.index not in self.TLW_DARK_KNIGHTS):
             return self
         temp = [r for r in self.relatives if not r.is_zero_growth_job]
         if temp:
@@ -469,6 +479,8 @@ class JobObject(TableObject):
 
     @cached_property
     def is_recruitable(self):
+        if self.index in self.TLW_DARK_KNIGHTS and self.is_canonical:
+            return True
         return self.is_generic or (self.is_canonical and self.character_name in
                                    self.STORYLINE_RECRUITABLE_NAMES)
     @property
@@ -1221,6 +1233,9 @@ class SkillsetObject(TableObject):
                                0x18, 0x34, 0x38, 0x39, 0x3b, 0x3e, 0x9c, 0xa1
                                } | BANNED_ANYTHING
 
+    TLW_DARK_KNIGHT_CANON = 0x4d
+    TLW_DARK_KNIGHT_OTHER = 0x4e
+
     @classproperty
     def BANNED_SKILLS(self):
         if get_global_label() == 'FFT_TLW':
@@ -1244,6 +1259,9 @@ class SkillsetObject(TableObject):
 
     @property
     def is_generic(self):
+        if (get_global_label() == 'FFT_TLW'
+                and self.index == self.TLW_DARK_KNIGHT_CANON):
+            return True
         return 5 <= self.index <= 0x18
 
     @cached_property
@@ -1510,14 +1528,28 @@ class SkillsetObject(TableObject):
 
         character_skillsets = dict(self.character_skillsets)
         names = sorted(JobObject.STORYLINE_RECRUITABLE_NAMES)
+        if get_global_label() == 'FFT_TLW':
+            names.append('DARK KNIGHT')
         shuffled_names = list(names)
         random.shuffle(shuffled_names)
         for sending, receiving in zip(names, shuffled_names):
             if sending == receiving:
                 continue
-            skillsets = character_skillsets[sending]
-            best = pick_best_skillset(skillsets)
-            jobs = JobObject.character_jobs[receiving]
+
+            if sending == 'DARK KNIGHT':
+                best = SkillsetObject.get(SkillsetObject.TLW_DARK_KNIGHT_CANON)
+            else:
+                skillsets = character_skillsets[sending]
+                best = pick_best_skillset(skillsets)
+
+            if receiving == 'DARK KNIGHT':
+                jobs = [j for j in JobObject.every
+                        if j.old_data['skillset_index'] in
+                        (SkillsetObject.TLW_DARK_KNIGHT_CANON,
+                         SkillsetObject.TLW_DARK_KNIGHT_OTHER)]
+            else:
+                jobs = JobObject.character_jobs[receiving]
+
             for j in jobs:
                 j.skillset_index = best.index
 
@@ -1580,6 +1612,11 @@ class SkillsetObject(TableObject):
                 set(self.rsms) <= set(other.rsms))
 
     def cleanup(self):
+        if (get_global_label() == 'FFT_TLW'
+                and self.index == self.TLW_DARK_KNIGHT_OTHER):
+            canon = self.get(self.TLW_DARK_KNIGHT_CANON)
+            for attr in self.old_data:
+                setattr(self, attr, getattr(canon, attr))
         while len(self.actionbytes) < len(self.old_data['actionbytes']):
             self.actionbytes.append(0)
         while len(self.rsmbytes) < len(self.old_data['rsmbytes']):
@@ -5640,8 +5677,9 @@ class ENTDObject(TableObject):
                      0x17c, 0x17d, 0x17e, 0x17f, 0x157, 0x158, 0x15a, 0x15c,
                      0x15d, 0x15e, 0x160, 0x161, 0x163, 0x165, 0x166, 0x167,
                      0x169, 0x16a, 0x16b, 0x16d, 0x16e, 0x16f, 0x173, 0x175,
-                     0x176, 0x177, 0x18a, 0x18b, 0x18c, 0x18d, 0x190, 0x18f,
-                     0x190]
+                     0x176, 0x177, 0x18a, 0x18b, 0x18c, 0x18d, 0x190, 0x18f]
+            valid += [0x134, 0x141, 0x149, 0x16c, 0x192, 0x196, 0x198, 0x19a]
+            valid += lange(0x19b, 0x1b9)
             self.VALID_INDEXES = sorted(set(
                 lange(1, 9) + lange(0xd, 0x21) + lange(0x25, 0x2d) +
                 lange(0x31, 0x45) + lange(0x49, 0x51) + lange(0x52, 0xfd) +

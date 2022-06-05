@@ -1,5 +1,5 @@
 AbilityObject               struct_ability.txt              4f3f0@TLW2_942.21           512
-AbilityAttributesObject     struct_ability_attribute.txt    503f0@TLW2_942.21           357
+AbilityAttributesObject     struct_ability_attribute.txt    503f0@TLW2_942.21           368
 AbilityStatusObject         empty.txt                       0                           357
 JobStatsObject              empty.txt                       0                           160
 JobInnatesObject            empty.txt                       0                           160
