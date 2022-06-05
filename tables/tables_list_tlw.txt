@@ -51,7 +51,7 @@ $formsprites            names_formsprites_tlw.txt
 $formpalettes           names_formpalettes_tlw.txt
 $formfacepalettes       names_formfacepalettes_tlw.txt
 #.option                 murond_exit_patch.txt
-#.option                 automash_dialogue.txt
+.option                 automash_dialogue.txt
 #.patch                  patch_dismiss_guests.txt
 .patch                  patch_tlw_disk_fix.txt
 .patch.no_verify        patch_tlw_fix.txt
