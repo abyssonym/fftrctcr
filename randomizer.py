@@ -153,8 +153,8 @@ class AbilityObject(TableObject):
         return (self.reaction_pool + self.support_pool + self.movement_pool)
 
     def preprocess(self):
-        if self.index == self.TELEPORT2:
-            self.jp_cost = 9999
+        if self.index in self.DUMMIED_ABILITIES:
+            self.jp_cost = 0
             self.old_data['jp_cost'] = self.jp_cost
 
     @property
@@ -162,8 +162,13 @@ class AbilityObject(TableObject):
         return self.index in self.MP_RESTORE_INNATES
 
     def cleanup(self):
-        if self.jp_cost != 9999:
-            self.jp_cost = round(self.jp_cost, -1)
+        if self.jp_cost == 0 and not self.get_bit('no_learn_with_jp'):
+            ratio = (random.random() +
+                     random.random() + random.random()) / 3
+            self.jp_cost = ratio * 9999
+        self.jp_cost = int(round(self.jp_cost, -1))
+        if self.jp_cost >= 10000:
+            self.jp_cost = 9999
 
 
 class AbilityAttributesObject(MutateBoostMixin):
@@ -1270,6 +1275,14 @@ class SkillsetObject(TableObject):
         return 5 <= self.index <= 0x18
 
     @cached_property
+    def is_recruitable(self):
+        for name in JobObject.STORYLINE_RECRUITABLE_NAMES:
+            skillsets = SkillsetObject.character_skillsets[name]
+            if self in skillsets:
+                return True
+        return False
+
+    @cached_property
     def is_altima_secondary(self):
         seconds = [u.old_data['secondary']
                    for u in ENTDObject.get(ENTDObject.FINAL_BATTLE).units
@@ -1615,6 +1628,17 @@ class SkillsetObject(TableObject):
     def skills_are_subset_of(self, other):
         return (set(self.actions) <= set(other.actions) and
                 set(self.rsms) <= set(other.rsms))
+
+    def preclean(self):
+        if not (self.is_generic or self.is_recruitable):
+            return
+        for ability in self.actions + self.rsms:
+            if (ability.get_bit('no_learn_with_jp') and
+                    not ability.get_bit('learn_on_hit')):
+                if ability in self.rsms or random.choice([True, False]):
+                    ability.set_bit('no_learn_with_jp', False)
+                elif ability in self.actions:
+                    ability.set_bit('learn_on_hit', True)
 
     def cleanup(self):
         if (get_global_label() == 'FFT_TLW'

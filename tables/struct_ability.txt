@@ -1,6 +1,6 @@
 jp_cost,2
 learn_chance,1
-misc_type,1
+misc_type,bit:t0 t1 t2 t3 unk_t4 learn_on_hit unk_t6 no_learn_with_jp
 misc_ai1,bit:target_allies target_enemies unequip stats add_status cancel_status mp hp
 misc_ai2,bit:silence evadable faith random_hits follow_target undead_reverse reflectable self_target
 mist_ai3,bit:defense_up magic_defense_up triple_bracelet triple_attack vertical_increase linear_attack direct_attack arc_attack
