@@ -338,6 +338,16 @@ class JobObject(TableObject):
         }
 
     @classproperty
+    def STORYLINE_RECRUITABLE_NAMES(self):
+        STORYLINE_RECRUITABLE_NAMES = {
+            'Ramza', 'Mustadio', 'Agrias', 'Meliadoul', 'Rafa', 'Malak',
+            'Orlandu', 'Beowulf', 'Cloud', 'Reis',
+            }
+        if get_global_label() == 'FFT_TLW':
+            STORYLINE_RECRUITABLE_NAMES |= {'Balthier', 'Ashley'}
+        return STORYLINE_RECRUITABLE_NAMES
+
+    @classproperty
     def TLW_DARK_KNIGHTS(self):
         if get_global_label() == 'FFT_TLW':
             return {0x37, 0x38}
